@@ -1,0 +1,7 @@
+Flask
+img2pdf
+Pillow
+pytesseract
+pymupdf
+cloudscraper
+beautifulsoup4
