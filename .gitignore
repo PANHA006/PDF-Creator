@@ -1,0 +1,29 @@
+# Environment variables (contains secret keys)
+.env
+
+# Python virtual environment
+venv/
+ENV/
+env/
+
+# Python compiled cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# User uploads and temporary folders
+uploads/
+
+# Editor and IDE configurations
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp

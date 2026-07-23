@@ -282,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ocrEmptyTableState = document.getElementById('ocr-empty-table-state');
     const btnCopyText = document.getElementById('btn-copy-text');
     const btnSaveTxt = document.getElementById('btn-save-txt');
+    const btnAiReview = document.getElementById('btn-ai-review');
     const btnMergeSelected = document.getElementById('btn-merge-selected');
     const ocrTableContainer = document.getElementById('ocr-table-container');
     const ocrTableBody = document.getElementById('ocr-table-body');
@@ -512,6 +513,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnDownload) {
             btnDownload.disabled = false;
         }
+
+        // Enable scan UI when PDF is selected
+        if (ocrPageSelect && btnScan) {
+            ocrPageSelect.disabled = false;
+            btnScan.disabled = false;
+            updateOcrPageSelectOptions();
+        }
+        if (btnAiReview) {
+            btnAiReview.disabled = (ocrResults.length === 0);
+        }
     }
 
     function clearActivePdf() {
@@ -526,6 +537,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnDownload) {
             btnDownload.disabled = true;
         }
+        if (btnAiReview) {
+            btnAiReview.disabled = true;
+        }
+
+        // Disable scan UI
+        updateOcrPageSelectOptions();
     }
 
     function downloadPdfFile(blob, filename) {
@@ -544,54 +561,67 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function extractAndScanOcrPdf(pdfBlob, pdfName) {
-        const originalDropzoneHTML = dropzone.innerHTML;
-        switchTab('organize');
-        dropzone.innerHTML = `
-            <div class="flex items-center gap-3 justify-center py-4">
-                <i data-lucide="loader" class="w-6 h-6 animate-spin text-brand-500"></i>
-                <span class="text-sm font-semibold text-slate-600 dark:text-slate-400">កំពុងវិភាគទំព័រ PDF សម្រាប់ OCR (Analyzing PDF)...</span>
-            </div>
-        `;
-        lucide.createIcons();
+        switchTab('ocr');
+        currentPdfBlob = pdfBlob;
+        activePdfFile = { name: pdfName, blob: pdfBlob };
+        
+        // Show progress bar container
+        ocrProgressContainer.classList.remove('hidden');
+        ocrProgressBar.style.width = '0%';
+        ocrProgressPercent.textContent = '0%';
+        ocrStatusText.textContent = 'កំពុងចាប់ផ្តើមស្កែនឯកសារ PDF ទាំងមូល (Starting direct PDF OCR)...';
+        btnScan.disabled = true;
         
         try {
+            const lang = ocrLangSelect ? ocrLangSelect.value : 'auto';
             const formData = new FormData();
             formData.append('file', pdfBlob, pdfName);
+            formData.append('lang', lang);
+            formData.append('pages', 'all');
             
-            const response = await fetch('/api/upload-pdf', {
+            // Set progress bar to 40% for visual feedback
+            ocrProgressBar.style.width = '40%';
+            ocrProgressPercent.textContent = '40%';
+            ocrStatusText.textContent = 'កំពុងដំណើរការ OCR លើទំព័រ PDF ទាំងអស់...';
+
+            const response = await fetch('/api/scan-ocr-pdf', {
                 method: 'POST',
                 body: formData
             });
             
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.message || 'Failed to parse PDF file');
+                throw new Error(err.message || 'Failed to scan PDF file');
             }
             
             const data = await response.json();
-            if (data.status === 'success' && data.pages.length > 0) {
-                const newImages = data.pages.map((page, idx) => ({
-                    id: 'img_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9) + '_' + idx,
-                    name: `${pdfName.replace(/\.pdf$/i, '')}_page_${idx + 1}.png`,
-                    dataUrl: page.dataUrl,
-                    rotation: 0
-                }));
+            if (data.status === 'success' && data.results) {
+                // Clear any running delete timers
+                ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
                 
-                images = newImages;
+                // Filter out garbage/noise text before saving
+                ocrResults = data.results.filter(r => !isGarbageText(r.lineText, lang));
+                saveOcrResults();
+                renderOcrTable();
                 updateOcrPageSelectOptions();
                 
-                switchTab('ocr');
-                ocrPageSelect.value = 'all';
-                btnScan.click();
+                ocrProgressBar.style.width = '100%';
+                ocrProgressPercent.textContent = '100%';
+                ocrStatusText.textContent = 'ស្កែនអក្សរបានជោគជ័យ!';
+                
+                setTimeout(() => {
+                    ocrProgressContainer.classList.add('hidden');
+                    btnScan.disabled = false;
+                    alert(`✨ ការស្កែនអក្សរលើឯកសារ PDF បានបញ្ចប់ដោយជោគជ័យ!`);
+                }, 600);
             } else {
-                throw new Error(data.message || 'No pages found in PDF');
+                throw new Error(data.message || 'No results returned from server');
             }
         } catch (err) {
+            ocrProgressContainer.classList.add('hidden');
+            btnScan.disabled = false;
             console.error(err);
-            alert('មានបញ្ហាក្នុងការរៀបចំ OCR៖ ' + err.message);
-        } finally {
-            dropzone.innerHTML = originalDropzoneHTML;
-            lucide.createIcons();
+            alert('មានបញ្ហាក្នុងការស្កែនអត្ថបទ៖ ' + err.message);
         }
     }
 
@@ -642,38 +672,72 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function updateOcrPageSelectOptions() {
         ocrPageSelect.innerHTML = '';
-        if (images.length === 0) {
+        if (images.length === 0 && !currentPdfBlob) {
             const opt = document.createElement('option');
             opt.value = 'none';
             opt.textContent = 'គ្មានទំព័ររូបភាព';
             ocrPageSelect.appendChild(opt);
+            ocrPageSelect.disabled = true;
+            btnScan.disabled = true;
             return;
         }
 
-        // Add 'current page' option
-        const optCurrent = document.createElement('option');
-        optCurrent.value = 'current';
-        optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentPage})`;
-        ocrPageSelect.appendChild(optCurrent);
+        ocrPageSelect.disabled = false;
+        btnScan.disabled = false;
 
-        // Add 'all pages' option
-        const optAll = document.createElement('option');
-        optAll.value = 'all';
-        optAll.textContent = 'គ្រប់ទំព័រទាំងអស់';
-        ocrPageSelect.appendChild(optAll);
+        // If we have images, populate page selector
+        if (images.length > 0) {
+            // Add 'current page' option
+            const optCurrent = document.createElement('option');
+            optCurrent.value = 'current';
+            optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentPage})`;
+            ocrPageSelect.appendChild(optCurrent);
 
-        // Add options for individual pages
-        images.forEach((img, idx) => {
-            const opt = document.createElement('option');
-            opt.value = idx + 1;
-            opt.textContent = `ទំព័រទី ${idx + 1}`;
-            ocrPageSelect.appendChild(opt);
-        });
+            // Add 'all pages' option
+            const optAll = document.createElement('option');
+            optAll.value = 'all';
+            optAll.textContent = 'គ្រប់ទំព័រទាំងអស់';
+            ocrPageSelect.appendChild(optAll);
+
+            // Add options for individual pages
+            images.forEach((img, idx) => {
+                const opt = document.createElement('option');
+                opt.value = idx + 1;
+                opt.textContent = `ទំព័រទី ${idx + 1}`;
+                ocrPageSelect.appendChild(opt);
+            });
+        } else if (currentPdfBlob) {
+            // Deduce the number of pages from ocrResults if possible
+            let maxPage = 1;
+            ocrResults.forEach(r => {
+                if (r.pageNum > maxPage) maxPage = r.pageNum;
+            });
+
+            // Add 'current page' option
+            const optCurrent = document.createElement('option');
+            optCurrent.value = 'current';
+            optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentPage})`;
+            ocrPageSelect.appendChild(optCurrent);
+
+            // Add 'all pages' option
+            const optAll = document.createElement('option');
+            optAll.value = 'all';
+            optAll.textContent = 'គ្រប់ទំព័រទាំងអស់';
+            ocrPageSelect.appendChild(optAll);
+
+            // Add individual pages based on maxPage
+            for (let idx = 1; idx <= maxPage; idx++) {
+                const opt = document.createElement('option');
+                opt.value = idx;
+                opt.textContent = `ទំព័រទី ${idx}`;
+                ocrPageSelect.appendChild(opt);
+            }
+        }
     }
 
     // Handle Start Scan Button click
     btnScan.addEventListener('click', () => {
-        if (images.length === 0) return;
+        if (!currentPdfBlob) return;
 
         // Confirm overwrite if we already have OCR results
         if (ocrResults.length > 0) {
@@ -685,155 +749,87 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const lang = ocrLangSelect.value;
         const targetPageVal = ocrPageSelect.value;
-        
+
         // Show progress bar container
         ocrProgressContainer.classList.remove('hidden');
         ocrProgressBar.style.width = '0%';
         ocrProgressPercent.textContent = '0%';
-        ocrStatusText.textContent = 'កំពុងចាប់ផ្តើមការស្កែនអត្ថបទ (Starting OCR scan)...';
+        ocrStatusText.textContent = 'កំពុងចាប់ផ្តើមស្កែនអត្ថបទពី PDF...';
         btnScan.disabled = true;
 
-        // Determine pages to scan
-        let pagesToScan = [];
-        if (targetPageVal === 'all') {
-            pagesToScan = images.map((_, idx) => idx + 1);
-            // Clear all running delete timers to prevent memory leaks
-            ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
-            ocrResults = []; // Reset if scanning all
-        } else if (targetPageVal === 'current') {
-            pagesToScan = [currentPage];
-            // Clear timers for the page being rescanned
-            ocrResults.filter(r => r.pageNum === currentPage).forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
-            ocrResults = ocrResults.filter(r => r.pageNum !== currentPage); // Clear current page
-        } else {
-            const pNum = parseInt(targetPageVal);
-            pagesToScan = [pNum];
-            // Clear timers for the page being rescanned
-            ocrResults.filter(r => r.pageNum === pNum).forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
-            ocrResults = ocrResults.filter(r => r.pageNum !== pNum); // Clear specific page
+        let pagesParam = 'all';
+        if (targetPageVal === 'current') {
+            pagesParam = String(currentPage);
+        } else if (targetPageVal !== 'all' && targetPageVal !== 'none') {
+            pagesParam = targetPageVal;
         }
 
-        // Perform requests sequentially to allow real-time progress updates and avoid overloading the server
-        const totalPages = pagesToScan.length;
+        const formData = new FormData();
+        formData.append('file', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+        formData.append('lang', lang);
+        formData.append('pages', pagesParam);
 
-        function scanPage(index) {
-            if (index >= totalPages) {
-                // All pages completed successfully!
+        // Set progress to 50% for visual feedback
+        ocrProgressBar.style.width = '50%';
+        ocrProgressPercent.textContent = '50%';
+        ocrStatusText.textContent = `កំពុងស្កែនទំព័រ ${pagesParam}...`;
+
+        fetch('/api/scan-ocr-pdf', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(err => {
+                    throw new Error(err.message || `Server error scanning PDF`);
+                });
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.status === 'success' && data.results) {
+                // Clear previous delete timers to prevent memory leaks
+                ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
+
+                // Filter out garbage/noise text before saving
+                const filteredResults = data.results.filter(r => !isGarbageText(r.lineText, lang));
+
+                if (pagesParam === 'all') {
+                    ocrResults = filteredResults;
+                } else {
+                    // Parse list of scanned pages
+                    const scannedPages = pagesParam.split(',').map(num => parseInt(num.trim()));
+                    // Filter out old records for these pages
+                    ocrResults = ocrResults.filter(r => !scannedPages.includes(r.pageNum));
+                    // Append new ones
+                    ocrResults.push(...filteredResults);
+                }
+
+                // Sort and renumber phrase IDs
+                renumberPhraseIds();
+                saveOcrResults();
+                renderOcrTable();
+                updateOcrPageSelectOptions();
+
                 ocrProgressBar.style.width = '100%';
                 ocrProgressPercent.textContent = '100%';
                 ocrStatusText.textContent = 'ស្កែនអត្ថបទបានជោគជ័យ!';
 
-                // Sort ocrResults by pageNum then by phrase line number
-                ocrResults.sort((a, b) => {
-                    if (a.pageNum !== b.pageNum) return a.pageNum - b.pageNum;
-                    return a.lineNum - b.lineNum;
-                });
-
                 setTimeout(() => {
                     ocrProgressContainer.classList.add('hidden');
                     btnScan.disabled = false;
-                    
-                    // Render Grid
-                    renderOcrTable();
-
-                    btnCopyText.disabled = false;
-                    btnSaveTxt.disabled = false;
-                    
-                    alert(`✨ ការស្កែនអត្ថបទចំនួន ${totalPages} ទំព័រ បានបញ្ចប់ដោយជោគជ័យ!`);
+                    alert('✨ ការស្កែនអត្ថបទដាច់ដោយឡែកពី PDF បានជោគជ័យ!');
                 }, 600);
-                return;
+            } else {
+                throw new Error(data.message || 'No results returned from server');
             }
-
-            const pageNum = pagesToScan[index];
-            const currentPercentage = Math.round((index / totalPages) * 100);
-            
-            ocrProgressBar.style.width = `${currentPercentage}%`;
-            ocrProgressPercent.textContent = `${currentPercentage}%`;
-            ocrStatusText.textContent = `កំពុងស្កែនទំព័រទី ${pageNum} (ទំព័រទី ${index + 1} នៃ ${totalPages})...`;
-
-            const img = images[pageNum - 1];
-            const formData = new FormData();
-            
-            let fileToUpload = img.file;
-            if (!fileToUpload && img.dataUrl) {
-                fileToUpload = dataURLtoBlob(img.dataUrl);
-            }
-            
-            formData.append('image', fileToUpload, img.name || `page_${pageNum}.png`);
-            formData.append('rotation', img.rotation);
-            formData.append('lang', lang);
-
-            // If it's a single page scan, set to 50% progress mid-way to look interactive
-            if (totalPages === 1) {
-                ocrProgressBar.style.width = '50%';
-                ocrProgressPercent.textContent = '50%';
-            }
-
-            fetch('/api/scan-ocr', {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => {
-                if (!res.ok) {
-                    return res.json().then(err => {
-                        throw new Error(err.message || `Server error scanning page ${pageNum}`);
-                    });
-                }
-                return res.json();
-            })
-            .then(data => {
-                const text = data.text || '';
-                
-                // Split scanned text into paragraph blocks/speech bubbles (by double or multiple newlines)
-                const paragraphs = text.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 0);
-                
-                paragraphs.forEach((paragraphText, paraIdx) => {
-                    // Split each paragraph block into individual lines to merge them
-                    const lines = paragraphText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                    
-                    let mergedText = '';
-                    lines.forEach((line, lineIdx) => {
-                        if (lineIdx === 0) {
-                            mergedText = line;
-                        } else {
-                            const prevLine = lines[lineIdx - 1];
-                            // If previous line ends with a hyphen, merge directly without space and drop the hyphen
-                            if (prevLine.endsWith('-')) {
-                                mergedText = mergedText.slice(0, -1) + line;
-                            } else {
-                                mergedText += ' ' + line;
-                            }
-                        }
-                    });
-
-                    // Filter out garbage/noise text (short English fragments, sound effects, metadata)
-                    if (isGarbageText(mergedText, lang)) {
-                        return; // Skip this phrase
-                    }
-
-                    const phraseId = `L${pageNum}-${paraIdx + 1}`;
-                    ocrResults.push({
-                        id: phraseId,
-                        lineNum: paraIdx + 1, // Represents Phrase number in the page
-                        pageNum: pageNum,
-                        lineText: mergedText,
-                        transText: "" // default empty
-                    });
-                });
-
-                // Scan next page in queue
-                scanPage(index + 1);
-            })
-            .catch(err => {
-                ocrProgressContainer.classList.add('hidden');
-                btnScan.disabled = false;
-                console.error(err);
-                alert('មានបញ្ហាក្នុងការស្កែនអត្ថបទ៖\n' + err.message);
-            });
-        }
-
-        // Start scanning the first page
-        scanPage(0);
+        })
+        .catch(err => {
+            ocrProgressContainer.classList.add('hidden');
+            btnScan.disabled = false;
+            console.error(err);
+            alert('មានបញ្ហាក្នុងការស្កែនអត្ថបទ៖\n' + err.message);
+        });
     });
 
     function renumberPhraseIds() {
@@ -918,6 +914,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnMergeSelected.disabled = true;
             btnCopyText.disabled = true;
             btnSaveTxt.disabled = true;
+            btnAiReview.disabled = true;
             if (ocrSelectAll) ocrSelectAll.checked = false;
             if (btnToggleFullscreen) {
                 btnToggleFullscreen.classList.add('hidden');
@@ -930,6 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         btnCopyText.disabled = false;
         btnSaveTxt.disabled = false;
+        btnAiReview.disabled = !currentPdfBlob;
 
         ocrTableContainer.classList.remove('hidden');
         ocrEmptyTableState.classList.add('hidden');
@@ -1203,6 +1201,177 @@ document.addEventListener('DOMContentLoaded', () => {
         
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+    });
+
+    // Review and correct transcript using Gemini AI
+    btnAiReview.addEventListener('click', () => {
+        if (!currentPdfBlob) return;
+
+        const currentPageItems = ocrResults.filter(r => r.pageNum === currentPage);
+        if (currentPageItems.length === 0) {
+            alert('គ្មានអត្ថបទស្កែនបាននៅលើទំព័របច្ចុប្បន្ន ដើម្បីផ្ទៀងផ្ទាត់ឡើយ។');
+            return;
+        }
+
+        const proceed = confirm("តើអ្នកពិតជាចង់ផ្ទៀងផ្ទាត់ និងកែសម្រួលអត្ថបទនៅលើទំព័រនេះជាមួយ Gemini AI មែនទេ?\n(Do you want to review and correct the text on this page with Gemini AI?)");
+        if (!proceed) return;
+
+        // Show progress container
+        ocrProgressContainer.classList.remove('hidden');
+        ocrProgressBar.style.width = '20%';
+        ocrProgressPercent.textContent = '20%';
+        ocrStatusText.textContent = 'កំពុងផ្ញើទិន្នន័យទៅកាន់ Gemini AI...';
+        btnAiReview.disabled = true;
+
+        const formData = new FormData();
+        formData.append('file', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+        formData.append('pageNum', currentPage);
+        formData.append('ocr_items', JSON.stringify(currentPageItems));
+
+        // Set progress to 60% mid-way
+        ocrProgressBar.style.width = '60%';
+        ocrProgressPercent.textContent = '60%';
+        ocrStatusText.textContent = 'Gemini AI កំពុងវិភាគរូបភាព និងកែតម្រូវអត្ថបទ...';
+
+        fetch('/api/ai-review', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(err => {
+                    throw new Error(err.message || 'Server error calling AI Review');
+                });
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.status === 'success' && data.results) {
+                let pageItems = ocrResults.filter(r => r.pageNum === currentPage);
+                
+                let updateCount = 0;
+                let deleteCount = 0;
+                let mergeCount = 0;
+                let addCount = 0;
+                
+                const lang = ocrLangSelect ? ocrLangSelect.value : 'auto';
+                
+                data.results.forEach(op => {
+                    const action = op.action;
+                    
+                    if (action === 'update') {
+                        const target = pageItems.find(r => r.id === op.id);
+                        if (target) {
+                            const newText = op.text.trim();
+                            if (target.lineText !== newText) {
+                                target.lineText = newText;
+                                updateCount++;
+                            }
+                        }
+                    } 
+                    else if (action === 'delete') {
+                        const initialLength = pageItems.length;
+                        pageItems = pageItems.filter(r => r.id !== op.id);
+                        if (pageItems.length < initialLength) {
+                            deleteCount++;
+                        }
+                    } 
+                    else if (action === 'merge') {
+                        const mergeIds = op.ids || [];
+                        if (mergeIds.length > 1) {
+                            const itemsToMerge = pageItems.filter(r => mergeIds.includes(r.id));
+                            if (itemsToMerge.length > 0) {
+                                const firstIndex = pageItems.findIndex(r => r.id === itemsToMerge[0].id);
+                                
+                                const mergedTrans = itemsToMerge
+                                    .map(r => r.transText)
+                                    .filter(t => t && t.trim().length > 0)
+                                    .join(' / ');
+                                    
+                                const mergedItem = {
+                                    id: itemsToMerge[0].id,
+                                    lineNum: itemsToMerge[0].lineNum,
+                                    pageNum: currentPage,
+                                    lineText: op.text.trim(),
+                                    transText: mergedTrans
+                                };
+                                
+                                pageItems = pageItems.filter(r => !mergeIds.includes(r.id));
+                                
+                                if (firstIndex !== -1) {
+                                    pageItems.splice(firstIndex, 0, mergedItem);
+                                } else {
+                                    pageItems.push(mergedItem);
+                                }
+                                mergeCount++;
+                            }
+                        }
+                    } 
+                    else if (action === 'add') {
+                        const text = op.text.trim();
+                        if (text && !isGarbageText(text, lang)) {
+                            const newItem = {
+                                id: `add-${Date.now()}-${Math.random()}`,
+                                lineNum: 999,
+                                pageNum: currentPage,
+                                lineText: text,
+                                transText: ""
+                            };
+                            
+                            const afterId = op.afterId;
+                            const insertIndex = pageItems.findIndex(r => r.id === afterId);
+                            
+                            if (insertIndex !== -1) {
+                                pageItems.splice(insertIndex + 1, 0, newItem);
+                            } else {
+                                pageItems.push(newItem);
+                            }
+                            addCount++;
+                        }
+                    }
+                });
+
+                // Clear any running delete timers
+                ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
+
+                ocrResults = ocrResults.filter(r => r.pageNum !== currentPage);
+                ocrResults.push(...pageItems);
+
+                renumberPhraseIds();
+                saveOcrResults();
+                renderOcrTable();
+                updateOcrPageSelectOptions();
+
+                ocrProgressBar.style.width = '100%';
+                ocrProgressPercent.textContent = '100%';
+                ocrStatusText.textContent = 'ផ្ទៀងផ្ទាត់ជោគជ័យ!';
+
+                setTimeout(() => {
+                    ocrProgressContainer.classList.add('hidden');
+                    btnAiReview.disabled = false;
+
+                    let summaryParts = [];
+                    if (updateCount > 0) summaryParts.push(`កែកំហុស ${updateCount}`);
+                    if (deleteCount > 0) summaryParts.push(`លុបជួររំខាន ${deleteCount}`);
+                    if (mergeCount > 0) summaryParts.push(`បញ្ចូលគ្នា ${mergeCount}`);
+                    if (addCount > 0) summaryParts.push(`បន្ថែមជួរថ្មី ${addCount}`);
+
+                    const summaryStr = summaryParts.length > 0 
+                        ? summaryParts.join('、 ') 
+                        : "ពុំមានការផ្លាស់ប្តូរឡើយ";
+
+                    alert(`✨ Gemini AI បានផ្ទៀងផ្ទាត់រួចរាល់៖\n(${summaryStr})`);
+                }, 600);
+            } else {
+                throw new Error(data.message || 'No results returned from Gemini');
+            }
+        })
+        .catch(err => {
+            ocrProgressContainer.classList.add('hidden');
+            btnAiReview.disabled = false;
+            console.error(err);
+            alert('មានបញ្ហាក្នុងការផ្ទៀងផ្ទាត់ជាមួយ AI៖\n' + err.message);
+        });
     });
 
     // Trigger hidden file input click on Import TXT click
@@ -1804,24 +1973,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await startChaptersDownloadSequence();
         }
         
-        const allPagesForPdf = [];
-        for (const [chUuid, pages] of downloadedPagesMap.entries()) {
-            const chCard = document.querySelector(`.chapter-card[data-id="${chUuid}"]`);
-            const chNum = chCard ? chCard.dataset.chapter : 'ch';
-            
-            pages.forEach((page, idx) => {
-                const mimeMatch = page.dataUrl.match(/data:(.*?);base64/);
-                const mime = mimeMatch ? mimeMatch[1] : 'image/png';
-                const ext = mime.split('/')[1] || 'png';
-                
-                allPagesForPdf.push({
-                    name: `${currentMangaData.title}_Ch_${chNum}_Page_${idx + 1}.${ext}`,
-                    dataUrl: page.dataUrl
-                });
-            });
-        }
-
-        if (allPagesForPdf.length === 0) {
+        if (downloadedPagesMap.size === 0) {
             alert('គ្មានទំព័ររូបភាពត្រូវបានទាញយកដើម្បីបញ្ជូនឡើយ!');
             return;
         }
@@ -1833,82 +1985,86 @@ document.addEventListener('DOMContentLoaded', () => {
         btnMangaImportPdf.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Compiling...`;
         btnMangaImportPdf.disabled = true;
 
+        let lastCreatedPdfId = null;
+
         try {
-            const formData = new FormData();
-            const metadata = [];
-            
-            allPagesForPdf.forEach((page) => {
-                const mimeMatch = page.dataUrl.match(/data:(.*?);base64/);
-                const mime = mimeMatch ? mimeMatch[1] : 'image/png';
-                const base64Data = page.dataUrl.split(',')[1];
-                const binaryData = atob(base64Data);
-                const array = [];
-                for (let i = 0; i < binaryData.length; i++) {
-                    array.push(binaryData.charCodeAt(i));
-                }
-                const blob = new Blob([new Uint8Array(array)], { type: mime });
+            // Loop through each chapter in downloadedPagesMap separately
+            for (const [chUuid, pages] of downloadedPagesMap.entries()) {
+                const chCard = document.querySelector(`.chapter-card[data-id="${chUuid}"]`);
+                const chNum = chCard ? chCard.dataset.chapter : 'ch';
                 
-                formData.append('images', blob, page.name);
-                metadata.push({
-                    filename: page.name,
-                    rotation: 0
-                });
-            });
-
-            formData.append('metadata', JSON.stringify(metadata));
-            formData.append('page_size', 'original');
-            formData.append('quality', '1.0');
-
-            const response = await fetch('/api/generate-pdf', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                let errorMsg = `Server returned code ${response.status}`;
-                try {
-                    const errJson = await response.json();
-                    if (errJson && errJson.message) {
-                        errorMsg = errJson.message;
+                if (!pages || pages.length === 0) continue;
+                
+                const formData = new FormData();
+                const metadata = [];
+                
+                pages.forEach((page, idx) => {
+                    const mimeMatch = page.dataUrl.match(/data:(.*?);base64/);
+                    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+                    const base64Data = page.dataUrl.split(',')[1];
+                    const binaryData = atob(base64Data);
+                    const array = [];
+                    for (let i = 0; i < binaryData.length; i++) {
+                        array.push(binaryData.charCodeAt(i));
                     }
-                } catch (jsonErr) {}
-                throw new Error(errorMsg);
+                    const blob = new Blob([new Uint8Array(array)], { type: mime });
+                    const filename = `${currentMangaData.title}_Ch_${chNum}_Page_${idx + 1}.${mime.split('/')[1] || 'png'}`;
+                    
+                    formData.append('images', blob, filename);
+                    metadata.push({
+                        filename: filename,
+                        rotation: 0
+                    });
+                });
+
+                formData.append('metadata', JSON.stringify(metadata));
+                formData.append('page_size', 'original');
+                formData.append('quality', '1.0');
+
+                mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងចងក្រងភាគទី ${chNum}...`;
+                lucide.createIcons();
+
+                const response = await fetch('/api/generate-pdf', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    let errorMsg = `Server returned code ${response.status}`;
+                    try {
+                        const errJson = await response.json();
+                        if (errJson && errJson.message) {
+                            errorMsg = errJson.message;
+                        }
+                    } catch (jsonErr) {}
+                    throw new Error(`បរាជ័យចំពោះភាគទី ${chNum}៖ ${errorMsg}`);
+                }
+
+                const pdfBlob = await response.blob();
+                const pdfName = `${currentMangaData.title} - Ch ${chNum}.pdf`;
+                
+                // Save to IndexedDB
+                lastCreatedPdfId = await savePdfToDB(pdfName, pdfBlob);
             }
 
-            const pdfBlob = await response.blob();
-            
-            // Deduce chapters label
-            const chaptersArray = Array.from(selectedChaptersList).map(uuid => {
-                const card = document.querySelector(`.chapter-card[data-id="${uuid}"]`);
-                return card ? card.dataset.chapter : '';
-            }).filter(Boolean);
-            
-            let chaptersLabel = '';
-            if (chaptersArray.length > 0) {
-                chaptersLabel = ` - Ch ${chaptersArray.join('_')}`;
-            }
-            
-            const pdfName = `${currentMangaData.title}${chaptersLabel}.pdf`;
-            
-            // Save to IndexedDB
-            const newId = await savePdfToDB(pdfName, pdfBlob);
-            
             // Switch view & tab
             switchView('pdf-creator');
             switchTab('organize');
             
             await loadAndRenderPdfGrid();
             
-            // Auto-select newly created PDF
-            const pdfList = await loadPdfsFromDB();
-            const targetPdf = pdfList.find(p => p.id === newId);
-            if (targetPdf) {
-                selectPdfFile(targetPdf);
+            // Auto-select the last created PDF
+            if (lastCreatedPdfId !== null) {
+                const pdfList = await loadPdfsFromDB();
+                const targetPdf = pdfList.find(p => p.id === lastCreatedPdfId);
+                if (targetPdf) {
+                    selectPdfFile(targetPdf);
+                }
             }
 
             mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> បញ្ជូនទៅ PDF Creator រួចរាល់!`;
             lucide.createIcons();
-            alert(`🎉 បានចងក្រង និងបញ្ជូនរឿង "${pdfName}" ទៅកាន់បណ្ណាល័យ PDF ដោយជោគជ័យ!`);
+            alert(`🎉 បានចងក្រង និងបញ្ជូនរឿងតាមជំពូកនីមួយៗទៅកាន់បណ្ណាល័យ PDF ដោយជោគជ័យ!`);
         } catch (err) {
             console.error(err);
             alert('មានបញ្ហាក្នុងការចងក្រង PDF៖ ' + err.message);

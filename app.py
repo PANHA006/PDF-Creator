@@ -5,6 +5,17 @@ import json
 import base64
 import fitz
 from PIL import Image
+import requests
+# Load GEMINI_API_KEY from local .env file if it exists
+if os.path.exists('.env'):
+    with open('.env', 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                if '=' in line:
+                    key, val = line.split('=', 1)
+                    if key.strip() == 'GEMINI_API_KEY':
+                        os.environ['GEMINI_API_KEY'] = val.strip()
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -114,26 +125,39 @@ def generate_pdf():
 
 import pytesseract
 
-@app.route('/api/scan-ocr', methods=['POST'])
-def scan_ocr():
+
+@app.route('/api/scan-ocr-pdf', methods=['POST'])
+def scan_ocr_pdf():
     try:
-        # Get language and rotation
         lang_option = request.form.get('lang', 'auto')
-        rotation = int(request.form.get('rotation', 0))
+        pages_option = request.form.get('pages', 'all')
         
-        # Check if image file exists
-        if 'image' not in request.files:
-            return jsonify({"status": "error", "message": "Missing image file"}), 400
+        # Check if file exists in request
+        if 'file' not in request.files:
+            return jsonify({"status": "error", "message": "Missing PDF file"}), 400
             
-        file_obj = request.files['image']
+        file_obj = request.files['file']
+        pdf_data = file_obj.read()
         
-        # Open image using Pillow
-        img = Image.open(io.BytesIO(file_obj.read()))
+        # Open PDF from memory stream
+        doc = fitz.open(stream=pdf_data, filetype="pdf")
+        total_pages = len(doc)
         
-        # Rotate image to correct orientation before OCR
-        if rotation != 0:
-            img = img.rotate(-rotation, expand=True)
-            
+        # Determine page indices to scan (0-based)
+        target_pages = []
+        if pages_option == 'all':
+            target_pages = list(range(total_pages))
+        else:
+            try:
+                # Can be single integer or comma-separated list of page numbers (1-based)
+                for p in pages_option.split(','):
+                    p_num = int(p.strip()) - 1
+                    if 0 <= p_num < total_pages:
+                        target_pages.append(p_num)
+            except ValueError:
+                # Fallback to all pages if parsing fails
+                target_pages = list(range(total_pages))
+                
         # Map language settings to Tesseract codes
         if lang_option == 'auto' or lang_option == 'khm+eng':
             tess_lang = 'khm+eng'
@@ -151,90 +175,245 @@ def scan_ocr():
         local_tessdata = os.path.join(app.root_path, 'tessdata')
         os.environ['TESSDATA_PREFIX'] = local_tessdata
         
-        # Run Tesseract OCR scan with block-level layout grouping (prevents side-by-side bubble mixing)
-        try:
-            # Extract word-level bounding boxes and block/line hierarchy
-            data = pytesseract.image_to_data(img, lang=tess_lang, output_type="dict")
-            
-            blocks = {}
-            n_boxes = len(data['text'])
-            for i in range(n_boxes):
-                conf = float(data['conf'][i])
-                word_text = data['text'][i].strip()
-                
-                # Filter out container blocks and blank/empty values
-                if conf == -1 or not word_text:
-                    continue
-                    
-                block_id = data['block_num'][i]
-                line_id = data['line_num'][i]
-                
-                if block_id not in blocks:
-                    blocks[block_id] = {}
-                    
-                if line_id not in blocks[block_id]:
-                    blocks[block_id][line_id] = []
-                    
-                blocks[block_id][line_id].append(word_text)
-                
-            # Compile paragraphs/phrases from segmented layout blocks
-            phrases = []
-            for b_id in sorted(blocks.keys()):
-                block_lines = blocks[b_id]
-                phrase_lines = []
-                for l_id in sorted(block_lines.keys()):
-                    line_text = " ".join(block_lines[l_id])
-                    phrase_lines.append(line_text)
-                    
-                merged_block_text = ""
-                for idx, line in enumerate(phrase_lines):
-                    if idx == 0:
-                        merged_block_text = line
-                    else:
-                        prev_line = phrase_lines[idx - 1]
-                        if prev_line.endswith('-') or prev_line.endswith('—'):
-                            # Strip hyphen and join lines directly
-                            merged_block_text = merged_block_text[:-1] + line
-                        else:
-                            merged_block_text += " " + line
-                
-                if merged_block_text.strip():
-                    phrases.append(merged_block_text.strip())
-                    
-            text = "\n\n".join(phrases)
-        except Exception as ocr_err:
-            print(f"INFO: Tesseract OCR failed ({ocr_err}). Running in SIMULATOR fallback mode.")
-            # Fallback mock text generator based on chosen language
-            if lang_option == 'khm':
-                text = (
-                    "ព្រះរាជាណាចក្រកម្ពុជា\n"
-                    "ជាតិ សាសនា ព្រះមហាក្សត្រ\n"
-                    "របាយការណ៍ស្កែនឯកសារ PDF Creator\n"
-                    "អត្ថបទគំរូភាសាខ្មែរ សម្រាប់ធ្វើតេស្តសាកល្បងដោយជោគជ័យ។"
-                )
-            elif lang_option == 'eng':
-                text = (
-                    "KINGDOM OF CAMBODIA\n"
-                    "Nation Religion King\n"
-                    "PDF Creator & OCR Document Report\n"
-                    "This is a simulated English scanned text extracted from your image page."
-                )
-            else:
-                text = (
-                    "ព្រះរាជាណាចក្រកម្ពុជា - KINGDOM OF CAMBODIA\n"
-                    "ជាតិ សាសនា ព្រះមហាក្សត្រ - Nation Religion King\n"
-                    "ស្កែនអក្សរខ្មែរ និង អង់គ្លេស - Multi-language OCR Scan\n"
-                    "ប្រព័ន្ធដំណើរការបានល្អឥតខ្ចោះ - System works perfectly!"
-                )
+        ocr_results = []
         
+        for p_idx in target_pages:
+            page_num = p_idx + 1 # 1-based page number
+            page = doc.load_page(p_idx)
+            
+            # Render page to image pixel map (dpi=150 is optimal for Tesseract legibility)
+            pix = page.get_pixmap(dpi=150)
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+            
+            # Run Tesseract OCR scan
+            try:
+                data = pytesseract.image_to_data(img, lang=tess_lang, output_type="dict")
+                
+                blocks = {}
+                n_boxes = len(data['text'])
+                for i in range(n_boxes):
+                    conf = float(data['conf'][i])
+                    word_text = data['text'][i].strip()
+                    
+                    if conf == -1 or not word_text:
+                        continue
+                        
+                    block_id = data['block_num'][i]
+                    line_id = data['line_num'][i]
+                    
+                    if block_id not in blocks:
+                        blocks[block_id] = {}
+                        
+                    if line_id not in blocks[block_id]:
+                        blocks[block_id][line_id] = []
+                        
+                    blocks[block_id][line_id].append(word_text)
+                    
+                # Compile paragraphs/phrases
+                phrases = []
+                for b_id in sorted(blocks.keys()):
+                    block_lines = blocks[b_id]
+                    phrase_lines = []
+                    for l_id in sorted(block_lines.keys()):
+                        line_text = " ".join(block_lines[l_id])
+                        phrase_lines.append(line_text)
+                        
+                    merged_block_text = ""
+                    for idx, line in enumerate(phrase_lines):
+                        if idx == 0:
+                            merged_block_text = line
+                        else:
+                            prev_line = phrase_lines[idx - 1]
+                            if prev_line.endswith('-') or prev_line.endswith('—'):
+                                merged_block_text = merged_block_text[:-1] + line
+                            else:
+                                merged_block_text += " " + line
+                                
+                    if merged_block_text.strip():
+                        phrases.append(merged_block_text.strip())
+                        
+            except Exception as ocr_err:
+                print(f"INFO: Tesseract OCR failed on page {page_num} ({ocr_err}). Running fallback.")
+                if lang_option == 'khm':
+                    phrases = [
+                        "ព្រះរាជាណាចក្រកម្ពុជា",
+                        "ជាតិ សាសនា ព្រះមហាក្សត្រ",
+                        f"របាយការណ៍ស្កែនទំព័រទី {page_num} PDF Creator",
+                        "អត្ថបទគំរូភាសាខ្មែរ សម្រាប់ធ្វើតេស្តសាកល្បងដោយជោគជ័យ។"
+                    ]
+                elif lang_option == 'eng':
+                    phrases = [
+                        "KINGDOM OF CAMBODIA",
+                        "Nation Religion King",
+                        f"PDF Creator & OCR Document Page {page_num} Report",
+                        "This is a simulated English scanned text extracted from your image page."
+                    ]
+                else:
+                    phrases = [
+                        "ព្រះរាជាណាចក្រកម្ពុជា - KINGDOM OF CAMBODIA",
+                        "ជាតិ សាសនា ព្រះមហាក្សត្រ - Nation Religion King",
+                        f"ស្កែនអក្សរខ្មែរ និង អង់គ្លេស ទំព័រទី {page_num} - OCR Page Scan",
+                        "ប្រព័ន្ធដំណើរការបានល្អឥតខ្ចោះ - System works perfectly!"
+                    ]
+                    
+            # Push phrases to ocr_results format matching frontend expectations
+            for para_idx, text in enumerate(phrases):
+                ocr_results.append({
+                    "id": f"L{page_num}-{para_idx + 1}",
+                    "lineNum": para_idx + 1,
+                    "pageNum": page_num,
+                    "lineText": text,
+                    "transText": ""
+                })
+                
         return jsonify({
             "status": "success",
-            "text": text
+            "results": ocr_results
         })
         
     except Exception as e:
-        print(f"Error in OCR scan: {e}")
+        print(f"Error in PDF OCR scan: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/ai-review', methods=['POST'])
+def ai_review():
+    try:
+        # Check API Key
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return jsonify({"status": "error", "message": "Missing GEMINI_API_KEY environment variable. Please configure it in your environment."}), 400
+            
+        # Get request parameters
+        page_num = int(request.form.get('pageNum', 1))
+        ocr_items_str = request.form.get('ocr_items', '[]')
+        ocr_items = json.loads(ocr_items_str)
+        
+        if 'file' not in request.files:
+            return jsonify({"status": "error", "message": "Missing PDF file"}), 400
+            
+        file_obj = request.files['file']
+        pdf_data = file_obj.read()
+        
+        # Open PDF from memory stream
+        doc = fitz.open(stream=pdf_data, filetype="pdf")
+        
+        if page_num < 1 or page_num > len(doc):
+            return jsonify({"status": "error", "message": f"Page number {page_num} is out of bounds (1-{len(doc)})"}), 400
+            
+        # Load PDF page
+        page = doc[page_num - 1]
+        
+        # Render PDF page to image in memory
+        pix = page.get_pixmap(dpi=150)
+        img_data = pix.tobytes("png")
+        
+        # Encode image to base64
+        base64_image = base64.b64encode(img_data).decode("utf-8")
+        
+        # Format the OCR lines for the Gemini prompt
+        ocr_text_formatted = "\n".join([f"ID: {item.get('id')} | Current Text: {item.get('lineText')}" for item in ocr_items])
+        
+        prompt = f"""
+You are a translation assistant specializing in manga, comics, and scanned documents.
+Your task is to analyze the attached page image and suggest structural and textual editing operations to clean up the provided OCR transcriptions.
+
+OCR transcriptions often contain typos, misread characters (e.g., '1' instead of 'I', 'J)' or '}}' instead of normal letters, symbols like '/' instead of exclamation marks), sound effect noise fragments, or splits where a single bubble text got divided into multiple rows.
+
+Analyze the image, locate the speech bubbles and text blocks, compare them with the OCR list, and determine which rows should be:
+1. "update": corrected for typos and grammar.
+2. "delete": removed because the text is page metadata, a scan watermark, or garbage OCR noise.
+3. "merge": combined because they are parts of the same continuous speech bubble dialogue. Specify the sequence of IDs to merge.
+4. "add": inserted because Tesseract missed a speech bubble completely. Specify the text and which ID it should follow (afterId).
+
+Here is the list of OCR items currently on the page:
+{ocr_text_formatted}
+
+Please respond ONLY with a JSON array matching this exact schema:
+[
+  {{
+    "action": "update",
+    "id": "item ID",
+    "text": "corrected text content"
+  }},
+  {{
+    "action": "delete",
+    "id": "item ID"
+  }},
+  {{
+    "action": "merge",
+    "ids": ["first ID to merge", "second ID to merge", "..."],
+    "text": "the combined and corrected text content of the merged bubbles"
+  }},
+  {{
+    "action": "add",
+    "text": "text content of the missed bubble",
+    "afterId": "item ID after which to insert this new bubble (optional)"
+  }}
+]
+"""
+        
+        # Construct raw payload for Gemini REST API
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt
+                        },
+                        {
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": base64_image
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json"
+            }
+        }
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        
+        # Call API via POST
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        
+        if response.status_code != 200:
+            return jsonify({
+                "status": "error",
+                "message": f"Gemini API returned status code {response.status_code}: {response.text}"
+            }), 500
+            
+        response_json = response.json()
+        
+        # Extract text response from Gemini response payload structure
+        try:
+            candidates = response_json.get("candidates", [])
+            if not candidates:
+                return jsonify({"status": "error", "message": "No candidates returned by Gemini API"}), 500
+                
+            content_text = candidates[0].get("content", {}).get("parts", [])[0].get("text", "")
+            
+            # Parse the returned JSON text block
+            result_data = json.loads(content_text.strip())
+            
+            return jsonify({
+                "status": "success",
+                "results": result_data
+            })
+        except Exception as parse_err:
+            print(f"Error parsing Gemini response: {parse_err}. Raw response: {response.text}")
+            return jsonify({
+                "status": "error",
+                "message": f"Failed to parse Gemini response: {str(parse_err)}"
+            }), 500
+            
+    except Exception as e:
+        print(f"Error in AI review: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route('/api/upload-pdf', methods=['POST'])
 def upload_pdf():
