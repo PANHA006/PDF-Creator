@@ -128,6 +128,21 @@
     background-color: rgba(139, 92, 246, 0.1) !important;
 }
 
+.chapter-card.selected .ch-checkbox {
+    background-color: #8b5cf6 !important;
+    border-color: #8b5cf6 !important;
+}
+
+.chapter-card.selected .ch-checkbox svg,
+.chapter-card.selected .ch-checkbox i {
+    display: block !important;
+}
+
+.chapter-card:not(.selected) .ch-checkbox svg,
+.chapter-card:not(.selected) .ch-checkbox i {
+    display: none !important;
+}
+
 /* Animated Shimmer Progress Bar */
 @keyframes shimmer-progress {
     0% {

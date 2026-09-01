@@ -64,6 +64,9 @@
             <button id="nav-manga-downloader" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400">
                 <i data-lucide="download" class="w-4 h-4"></i> Manga Downloader
             </button>
+            <button id="nav-history" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400">
+                <i data-lucide="history" class="w-4 h-4"></i> ប្រវត្តិកិច្ចការ & ទិន្នន័យ (History & Data)
+            </button>
         </nav>
         <div class="p-6 border-t border-slate-200 dark:border-slate-800 text-center">
             <span class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">PDF Creator & OCR v1.1</span>
@@ -377,11 +380,11 @@
         <div id="view-manga-downloader" class="flex-1 hidden flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden">
             <!-- Search / URL Input Bar -->
             <div class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
-                <label for="manga-url-input" class="text-xs font-bold text-slate-500 dark:text-slate-400">តំណភ្ជាប់រឿង Manga (MangaDex Title Link or ID)</label>
+                <label for="manga-url-input" class="text-xs font-bold text-slate-500 dark:text-slate-400">តំណភ្ជាប់រឿង Manga / Manhwa (MangaDex, Asura Scans, ComicK, Manganato, Manhuaplus, Flame, Reaper...)</label>
                 <div class="flex gap-4">
                     <div class="flex-1 relative flex items-center">
                         <span class="absolute left-4 text-slate-400"><i data-lucide="link" class="w-4 h-4"></i></span>
-                        <input type="text" id="manga-url-input" class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-11 pr-4 py-3 text-sm font-semibold focus:outline-none focus:border-brand-500" placeholder="https://mangadex.org/title/... or Manga ID">
+                        <input type="text" id="manga-url-input" class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-11 pr-4 py-3 text-sm font-semibold focus:outline-none focus:border-brand-500" placeholder="https://asuracomics.com/..., https://comick.io/comic/..., https://manganato.com/..., https://mangadex.org/...">
                     </div>
                     <button id="btn-manga-fetch" class="bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm px-6 py-3 rounded-xl transition shadow-md active:scale-95 flex items-center gap-2">
                         <i data-lucide="search" class="w-4 h-4"></i> ស្វែងរក (Fetch)
@@ -421,20 +424,40 @@
                 <div class="w-[65%] flex flex-col bg-white dark:bg-slate-950 overflow-hidden">
                     <!-- Selection / Range Controls -->
                     <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20 flex flex-col gap-4">
-                        <div class="flex items-center justify-between">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
                             <h3 class="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
                                 <i data-lucide="list" class="w-4 h-4 text-brand-500"></i> បញ្ជីភាគ (Chapters)
                             </h3>
-                            <div class="flex gap-2">
-                                <button id="btn-manga-select-all" class="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1 transition">
-                                    ជ្រើសរើសទាំងអស់
+                            <div class="flex items-center gap-2">
+                                <button id="btn-manga-select-all" class="px-2.5 py-1 rounded-lg bg-brand-50 hover:bg-brand-100 dark:bg-brand-950/40 dark:hover:bg-brand-900/60 text-brand-600 dark:text-brand-400 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 border border-brand-200 dark:border-brand-800/60" title="ជ្រើសរើសគ្រប់ភាគទាំងអស់">
+                                    <i data-lucide="check-check" class="w-3.5 h-3.5"></i> ជ្រើសទាំងអស់
                                 </button>
-                                <span class="text-slate-300">|</span>
-                                <button id="btn-manga-deselect-all" class="text-xs text-slate-500 hover:text-slate-600 font-semibold flex items-center gap-1 transition">
-                                    លុបការជ្រើសរើស
+                                <button id="btn-manga-deselect-all" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 border border-slate-200 dark:border-slate-700" title="លុបការជ្រើសរើសទាំងអស់">
+                                    <i data-lucide="square" class="w-3.5 h-3.5"></i> លុបការជ្រើស
                                 </button>
                             </div>
                         </div>
+                        <!-- Search & Sort Controls -->
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <!-- Master Select All Checkbox -->
+                            <label class="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-brand-500 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition cursor-pointer active:scale-95 shadow-sm select-none" title="ចុចដើម្បីជ្រើសរើសទាំងអស់ ឬលុបការជ្រើសរើស">
+                                <input type="checkbox" id="manga-master-checkbox" class="w-3.5 h-3.5 text-brand-600 border-slate-300 rounded focus:ring-brand-500 cursor-pointer">
+                                <span id="manga-master-label">ជ្រើសទាំងអស់</span>
+                            </label>
+
+                            <div class="relative flex-1 min-w-[180px]">
+                                <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                <input type="text" id="manga-chapter-search" placeholder="ស្វែងរកលេខភាគ ឬចំណងជើង..." class="w-full pl-9 pr-8 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none focus:border-brand-500 transition">
+                                <button id="btn-manga-clear-search" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
+                            <button id="btn-manga-sort" class="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-brand-500 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition active:scale-95 shadow-sm">
+                                <i data-lucide="arrow-down-up" class="w-3.5 h-3.5 text-brand-500"></i>
+                                <span id="manga-sort-label">ចាស់ ➔ ថ្មី (1 ➔ 99)</span>
+                            </button>
+                        </div>
+                        
                         <!-- Range select inputs -->
                         <div class="flex items-center gap-3 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
                             <span class="font-bold text-slate-500 dark:text-slate-400">ជ្រើសរើសចន្លោះភាគ (Select Range)៖</span>
@@ -470,6 +493,41 @@
                             <p id="manga-download-details" class="text-[10px] text-slate-400 italic">Starting chapter download sequence...</p>
                         </div>
 
+                        <!-- PDF Export Mode Selector & Volume Chunking -->
+                        <div class="p-4 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs space-y-3">
+                            <div class="flex items-center justify-between flex-wrap gap-2">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="layers" class="w-4 h-4 text-brand-500"></i>
+                                    <span class="font-bold text-slate-700 dark:text-slate-300">ទម្រង់ PDF ពេលបញ្ជូន (PDF Output Mode)៖</span>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    <label class="flex items-center gap-2 cursor-pointer select-none font-bold text-brand-600 dark:text-brand-400">
+                                        <input type="radio" name="manga-pdf-mode" value="combine" checked class="w-3.5 h-3.5 text-brand-600 focus:ring-brand-500 cursor-pointer">
+                                        <span>📚 ច្របាច់តាមក្បាលរឿង (Batch Volumes)</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer select-none font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200">
+                                        <input type="radio" name="manga-pdf-mode" value="separate" class="w-3.5 h-3.5 text-brand-600 focus:ring-brand-500 cursor-pointer">
+                                        <span>📑 បំបែក ១ ភាគ = ១ PDF</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Custom Volume Chunk Options (Visible when combine is active) -->
+                            <div id="manga-volume-options-box" class="pt-2 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-semibold text-slate-600 dark:text-slate-400">កំណត់ចំនួនភាគក្នុង ១ PDF៖</span>
+                                    <div class="flex items-center gap-1">
+                                        <input type="number" id="manga-vol-chunk-size" value="10" min="1" max="500" class="w-16 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-center font-bold text-brand-600 dark:text-brand-400 focus:outline-none focus:border-brand-500">
+                                        <span class="text-slate-500 font-medium">ភាគ / 1 PDF</span>
+                                    </div>
+                                </div>
+                                <div id="manga-vol-calc-badge" class="px-2.5 py-1 rounded-lg bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-900/50 text-brand-700 dark:text-brand-300 font-medium text-[11px] flex items-center gap-1.5">
+                                    <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                                    <span id="manga-vol-calc-text">ជ្រើស 0 ភាគ ➔ បង្កើត 0 សៀវភៅ PDF</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Download Actions -->
                         <div class="flex gap-4">
                             <button id="btn-manga-download-zip" class="flex-1 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40" disabled>
@@ -483,15 +541,145 @@
                 </div>
             </div>
 
-            <!-- Empty/No Manga Fetched State -->
-            <div id="manga-empty-state" class="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-6 text-center">
-                <i data-lucide="search" class="w-16 h-16 mb-4 stroke-1 opacity-60 animate-pulse text-brand-500"></i>
-                <h3 class="font-bold text-base text-slate-700 dark:text-slate-300">ពុំទាន់មានទិន្នន័យ Manga ឡើយ</h3>
-                <p class="text-xs max-w-sm mt-1">សូមបញ្ចូល Link រឿង MangaDex ពីលើដើម្បីស្វែងរក និងទាញយកជំពូកផ្សេងៗ។</p>
+        <!-- VIEW 3: History & Data Management View -->
+        <div id="view-history" class="flex-1 hidden flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden">
+            <!-- History Header & Stats Bar -->
+            <div class="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-6">
+                <div class="flex items-center justify-between flex-wrap gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-500/30">
+                            <i data-lucide="history" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">ប្រវត្តិកិច្ចការ & ការគ្រប់គ្រងទិន្នន័យ (History & Data Management)</h2>
+                            <p class="text-xs text-slate-400 dark:text-slate-500">មើលប្រវត្តិទាញយក Manga, ការស្កែន OCR, ឯកសារ PDF និងគ្រប់គ្រងសម្អាតទិន្នន័យ</p>
+                        </div>
+                    </div>
+
+                    <!-- Clear Actions -->
+                    <div class="flex items-center gap-2">
+                        <button id="btn-clear-history-logs" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 border border-slate-200 dark:border-slate-700" title="លុបតែបញ្ជីប្រវត្តិកិច្ចការ">
+                            <i data-lucide="eraser" class="w-3.5 h-3.5 text-slate-500"></i> លុបតែប្រវត្តិ (Clear Logs)
+                        </button>
+                        <button id="btn-clear-all-data" class="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 border border-rose-200 dark:border-rose-900/50 shadow-sm" title="លុបទិន្នន័យ និងឯកសារ PDF ទាំងអស់">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-500"></i> សម្អាតទិន្នន័យទាំងអស់ (Clear All)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stats Overview Cards -->
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 flex items-center gap-3.5">
+                        <div class="w-11 h-11 rounded-xl bg-brand-100 dark:bg-brand-950 flex items-center justify-center text-brand-600 dark:text-brand-400">
+                            <i data-lucide="file-text" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">ឯកសារ PDF រក្សាទុក</p>
+                            <h4 id="stat-pdf-count" class="text-lg font-black text-slate-800 dark:text-slate-100">0</h4>
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 flex items-center gap-3.5">
+                        <div class="w-11 h-11 rounded-xl bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                            <i data-lucide="download" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Manga ទាញយករួច</p>
+                            <h4 id="stat-manga-count" class="text-lg font-black text-slate-800 dark:text-slate-100">0</h4>
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 flex items-center gap-3.5">
+                        <div class="w-11 h-11 rounded-xl bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                            <i data-lucide="sparkles" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">OCR & Translations</p>
+                            <h4 id="stat-ocr-count" class="text-lg font-black text-slate-800 dark:text-slate-100">0</h4>
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 flex items-center gap-3.5">
+                        <div class="w-11 h-11 rounded-xl bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                            <i data-lucide="hard-drive" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">ទំហំផ្ទុកសរុប (Storage)</p>
+                            <h4 id="stat-storage-size" class="text-lg font-black text-slate-800 dark:text-slate-100">0.0 MB</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search and Filter Toolbar -->
+                <div class="flex items-center justify-between gap-4 flex-wrap">
+                    <!-- Filter Tabs -->
+                    <div class="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <button class="history-filter-btn px-3 py-1.5 rounded-lg font-bold text-xs transition bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-400 shadow-sm" data-filter="all">
+                            ទាំងអស់ (<span id="filter-count-all">0</span>)
+                        </button>
+                        <button class="history-filter-btn px-3 py-1.5 rounded-lg font-bold text-xs transition text-slate-500 hover:text-slate-800 dark:hover:text-slate-200" data-filter="manga">
+                            Manga Downloads (<span id="filter-count-manga">0</span>)
+                        </button>
+                        <button class="history-filter-btn px-3 py-1.5 rounded-lg font-bold text-xs transition text-slate-500 hover:text-slate-800 dark:hover:text-slate-200" data-filter="ocr">
+                            OCR & បកប្រែ (<span id="filter-count-ocr">0</span>)
+                        </button>
+                        <button class="history-filter-btn px-3 py-1.5 rounded-lg font-bold text-xs transition text-slate-500 hover:text-slate-800 dark:hover:text-slate-200" data-filter="pdf">
+                            ឯកសារ PDF (<span id="filter-count-pdf">0</span>)
+                        </button>
+                    </div>
+
+                    <!-- History Search Bar -->
+                    <div class="relative flex-1 min-w-[240px] max-w-md">
+                        <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" id="history-search-input" placeholder="ស្វែងរកតាមចំណងជើង ឬឈ្មោះ File..." class="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none focus:border-brand-500 transition">
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Cards Timeline Container -->
+            <div id="history-list-container" class="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar bg-slate-50/40 dark:bg-slate-900/10">
+                <!-- History Items injected dynamically -->
+            </div>
+
+            <!-- Empty History State -->
+            <div id="history-empty-state" class="flex-1 hidden flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-8 text-center">
+                <div class="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
+                    <i data-lucide="archive" class="w-8 h-8 opacity-60"></i>
+                </div>
+                <h3 class="font-bold text-sm text-slate-700 dark:text-slate-300">មិនទាន់មានប្រវត្តិកិច្ចការឡើយ</h3>
+                <p class="text-xs text-slate-400 mt-1 max-w-xs">រាល់សកម្មភាពទាញយក Manga, ការបម្លែងជា PDF និងការស្កែន OCR នឹងបង្ហាញទីនេះ។</p>
             </div>
         </div>
 
     </main>
+
+    <!-- Confirmation Modal for Clear Data -->
+    <div id="modal-clear-confirm" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 transform transition-all">
+            <div class="flex items-center gap-3 text-rose-600 dark:text-rose-400">
+                <div class="p-3 bg-rose-50 dark:bg-rose-950/50 rounded-xl border border-rose-100 dark:border-rose-900/50">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-slate-800 dark:text-slate-100" id="modal-clear-title">តើអ្នកពិតជាចង់សម្អាតទិន្នន័យមែនទេ?</h3>
+                    <p class="text-xs text-slate-400" id="modal-clear-desc">សកម្មភាពនេះនឹងលុបឯកសារ និងប្រវត្តិទាំងអស់ដោយមិនអាចត្រឡប់វិញបានឡើយ។</p>
+                </div>
+            </div>
+
+            <div class="bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 p-3.5 rounded-xl text-xs text-rose-700 dark:text-rose-300">
+                ⚠️ <span id="modal-clear-warning">ឯកសារ PDF ក្នុងបណ្ណាល័យ រួមទាំងប្រវត្តិទាញយកទាំងអស់នឹងត្រូវបានសម្អាតស្អាត ១០០%។</span>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-2">
+                <button id="btn-modal-cancel" class="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                    បោះបង់ (Cancel)
+                </button>
+                <button id="btn-modal-confirm" class="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition shadow-md shadow-rose-600/30 active:scale-95">
+                    យល់ព្រមលុប (Confirm Delete)
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- JS Scripts -->
     <script src="/static/js/main.js?v={{ range(1, 100000) | random }}"></script>

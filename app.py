@@ -652,82 +652,190 @@ def make_mangadex_request(url):
     with urllib.request.urlopen(req) as response:
         return json.loads(response.read().decode('utf-8'))
 
-def fetch_madara_manga(url):
+def fetch_universal_manga(url):
     try:
-        # Detect if url is a chapter URL and extract parent URL
-        parent_url = re.sub(r'chapter-[a-zA-Z0-9\-_]+/?$', '', url)
-        if not parent_url.endswith('/'):
+        import cloudscraper
+        from bs4 import BeautifulSoup
+        
+        scraper = cloudscraper.create_scraper()
+        
+        # 1. Special Handling for ComicK
+        if 'comick.' in url or 'comick.io' in url or 'comick.app' in url:
+            try:
+                # Extract comic slug: e.g. https://comick.io/comic/solo-leveling
+                comic_slug = url.strip('/').split('/')[-1].split('?')[0]
+                api_url = f"https://api.comick.fun/comic/{comic_slug}"
+                res = scraper.get(api_url, timeout=12).json()
+                comic_data = res.get('comic', {})
+                comic_hid = comic_data.get('hid')
+                
+                title = comic_data.get('title', 'Unknown Title')
+                desc = comic_data.get('desc', '')
+                status = "Completed" if comic_data.get('status') == 2 else "OnGoing"
+                
+                cover_url = ""
+                if comic_data.get('md_covers'):
+                    cover_bkey = comic_data['md_covers'][0].get('bkey')
+                    cover_url = f"https://meo.comick.pictures/{cover_bkey}"
+                    
+                author = "Unknown Author"
+                if comic_data.get('authors'):
+                    author = ", ".join([a.get('name', '') for a in comic_data['authors'] if a.get('name')])
+                    
+                # Fetch chapters from ComicK API
+                ch_api = f"https://api.comick.fun/comic/{comic_hid}/chapters?lang=en&limit=300"
+                ch_res = scraper.get(ch_api, timeout=15).json()
+                raw_chapters = ch_res.get('chapters', [])
+                
+                chapters = []
+                for ch in raw_chapters:
+                    ch_hid = ch.get('hid')
+                    ch_num = ch.get('chap') or ""
+                    ch_title = ch.get('title') or f"Chapter {ch_num}"
+                    chapters.append({
+                        "id": f"https://comick.io/chapter/{ch_hid}",
+                        "volume": ch.get('vol') or "",
+                        "chapter": str(ch_num),
+                        "title": ch_title,
+                        "pages": 0
+                    })
+                    
+                def parse_comick_num(c):
+                    try:
+                        return float(c['chapter'])
+                    except:
+                        return 0.0
+                chapters.sort(key=parse_comick_num)
+                
+                return jsonify({
+                    "status": "success",
+                    "manga": {
+                        "id": url,
+                        "title": title,
+                        "author": author,
+                        "status": status,
+                        "description": desc,
+                        "coverUrl": cover_url,
+                        "chapters": chapters
+                    }
+                })
+            except Exception as comick_err:
+                print(f"Error parsing ComicK API: {comick_err}")
+
+        # 2. General Scraper for WordPress, Madara, MangaStream, Asura, Manganato, Flame Comics, Reaper Scans
+        # Detect parent series URL if a chapter URL was pasted
+        parent_url = re.sub(r'(?:chapter|ch|episode|ep)[-_/][a-zA-Z0-9\-_.]+(?:/?)$', '', url, flags=re.IGNORECASE)
+        if not parent_url.endswith('/') and not parent_url.endswith('.html'):
             parent_url += '/'
             
         is_chapter_url = parent_url != url
         requested_chapter_url = url if is_chapter_url else ""
         
-        import cloudscraper
-        from bs4 import BeautifulSoup
-        scraper = cloudscraper.create_scraper()
-        html = scraper.get(parent_url).text
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': parent_url
+        }
+        
+        res = scraper.get(parent_url, headers=headers, timeout=15)
+        html = res.text
         soup = BeautifulSoup(html, 'html.parser')
         
-        # 1. Title
-        title_el = soup.select_one('.post-title h1') or soup.select_one('h1')
+        # 1. Title extraction
+        title_el = (soup.select_one('.post-title h1') or 
+                    soup.select_one('.story-info-right h1') or 
+                    soup.select_one('.manga-info-top h1') or 
+                    soup.select_one('h1.entry-title') or 
+                    soup.select_one('.series-title') or 
+                    soup.select_one('h1'))
         title = title_el.text.strip() if title_el else "Unknown Title"
         
         # 2. Cover image
-        cover_el = soup.select_one('.summary_image img') or soup.select_one('.post-thumbnail img')
+        cover_el = (soup.select_one('.summary_image img') or 
+                    soup.select_one('.story-info-left img') or 
+                    soup.select_one('.manga-info-pic img') or 
+                    soup.select_one('.post-thumbnail img') or 
+                    soup.select_one('.thumb img') or 
+                    soup.select_one('.series-thumb img'))
         cover_url = ""
         if cover_el:
-            cover_url = cover_el.get('data-src') or cover_el.get('data-lazy-src') or cover_el.get('src') or ""
+            cover_url = (cover_el.get('data-src') or 
+                         cover_el.get('data-lazy-src') or 
+                         cover_el.get('srcset', '').split(' ')[0] or 
+                         cover_el.get('src') or "")
         
         # 3. Description
-        desc_el = soup.select_one('.description-summary') or soup.select_one('.manga-excerpt')
+        desc_el = (soup.select_one('.description-summary') or 
+                   soup.select_one('.panel-story-info-description') or 
+                   soup.select_one('#noidungm') or 
+                   soup.select_one('.manga-excerpt') or 
+                   soup.select_one('.entry-content p'))
         description = desc_el.text.strip() if desc_el else ""
         
-        # 4. Scrape metadata: Author, Alternative, Status
+        # 4. Author & Status
         author = "Unknown Author"
-        alternative = ""
         status = "OnGoing"
-        for item in soup.select('.post-content_item'):
-            h5 = item.select_one('h5')
-            if h5:
-                label = h5.text.strip().lower()
-                val_el = item.select_one('.summary-content') or item.select_one('.author-content')
-                if val_el:
-                    val_text = val_el.text.strip()
-                    if 'author' in label:
-                        author = val_text
-                    elif 'alternative' in label:
-                        alternative = val_text
-                    elif 'status' in label:
-                        status = val_text
         
-        # 5. Chapters list
-        chapter_elements = soup.select('.wp-manga-chapter a')
-        if not chapter_elements:
-            chapter_elements = soup.select('.row-content-chapter a')
+        full_text = soup.text.lower()
+        if 'completed' in full_text and 'ongoing' not in full_text:
+            status = "Completed"
             
+        for item in soup.select('.post-content_item, .variations-tableInfo tr, .manga-info-top li'):
+            text_block = item.text.strip().lower()
+            if 'author' in text_block or 'tác giả' in text_block:
+                author = item.text.split(':')[-1].strip()
+            if 'status' in text_block:
+                if 'completed' in text_block:
+                    status = "Completed"
+                elif 'ongoing' in text_block:
+                    status = "OnGoing"
+        
+        # 5. Chapters list extraction
+        chapter_elements = (soup.select('.wp-manga-chapter a') or 
+                            soup.select('.row-content-chapter a.chapter-name') or 
+                            soup.select('.row-content-chapter a') or 
+                            soup.select('.chapter-list .row a') or 
+                            soup.select('.eph-num a') or 
+                            soup.select('.bxcl ul li a') or 
+                            soup.select('.sub-chap-list a') or 
+                            soup.select('a[href*="-chapter-"]') or 
+                            soup.select('a[href*="/chapter-"]'))
+        
         chapters = []
+        seen_urls = set()
+        
         for idx, el in enumerate(chapter_elements):
-            ch_url = el.get('href')
+            ch_url = el.get('href', '').strip()
+            if not ch_url or ch_url in seen_urls or ch_url.startswith('#'):
+                continue
+            seen_urls.add(ch_url)
+            
             ch_title = el.text.strip()
             
             # Extract chapter number
             ch_num = ""
-            match = re.search(r'(?:chapter|ch\.?)\s*([0-9\.]+)', ch_title, re.IGNORECASE)
+            match = re.search(r'(?:chapter|ch\.?|ep\.?)\s*([0-9\.]+)', ch_title + " " + ch_url, re.IGNORECASE)
             if match:
                 ch_num = match.group(1)
             else:
                 ch_num = str(idx + 1)
                 
             chapters.append({
-                "id": ch_url, # Pass URL as id!
+                "id": ch_url,
                 "volume": "",
                 "chapter": ch_num,
                 "title": ch_title,
-                "pages": 0 # Web scraped chapters don't tell page count upfront
+                "pages": 0
             })
             
-        # Reverse to ascending order (Madara is descending)
-        chapters.reverse()
+        # Determine sorting: if first chapter is high number (e.g. 100) and last is 1, reverse to ascending
+        if len(chapters) > 1:
+            try:
+                first_num = float(chapters[0]['chapter'])
+                last_num = float(chapters[-1]['chapter'])
+                if first_num > last_num:
+                    chapters.reverse()
+            except:
+                chapters.reverse()
         
         return jsonify({
             "status": "success",
@@ -736,7 +844,6 @@ def fetch_madara_manga(url):
                 "title": title,
                 "author": author,
                 "status": status,
-                "alternative": alternative,
                 "description": description,
                 "coverUrl": cover_url,
                 "chapters": chapters,
@@ -744,61 +851,125 @@ def fetch_madara_manga(url):
             }
         })
     except Exception as e:
-        print(f"Error fetching Madara manga details: {e}")
+        print(f"Error fetching universal manga details: {e}")
         return jsonify({"status": "error", "message": f"Failed to parse website: {str(e)}"}), 500
 
-def download_madara_chapter(chapter_url):
+def download_universal_chapter(chapter_url):
     try:
         import cloudscraper
         from bs4 import BeautifulSoup
         import requests
         
         scraper = cloudscraper.create_scraper()
-        html = scraper.get(chapter_url).text
-        soup = BeautifulSoup(html, 'html.parser')
         
-        # In Madara themes, images are inside .reading-content img or .page-break img or .entry-content img
-        img_elements = soup.select('.reading-content img') or soup.select('.page-break img') or soup.select('.entry-content img')
+        # 1. Special Handling for ComicK Chapter API
+        if 'comick.io/chapter/' in chapter_url:
+            ch_hid = chapter_url.strip('/').split('/')[-1]
+            api_url = f"https://api.comick.fun/chapter/{ch_hid}"
+            res = scraper.get(api_url, timeout=12).json()
+            images = res.get('chapter', {}).get('images', [])
+            page_urls = [f"https://meo.comick.pictures/{img['bkey']}" for img in images if 'bkey' in img]
+        else:
+            # 2. General Chapter Scraper
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': chapter_url
+            }
+            html = scraper.get(chapter_url, headers=headers, timeout=15).text
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Cascading selectors for chapter reader image containers
+            img_elements = (soup.select('.container-chapter-reader img') or 
+                            soup.select('#readerarea img') or 
+                            soup.select('.reading-content img') or 
+                            soup.select('.page-break img') or 
+                            soup.select('.rd-img img') or 
+                            soup.select('.entry-content img') or 
+                            soup.select('.chapter-image img') or 
+                            soup.select('img.wp-manga-chapter-img'))
+            
+            page_urls = []
+            for el in img_elements:
+                img_url = (el.get('data-src') or 
+                           el.get('data-lazy-src') or 
+                           el.get('data-original') or 
+                           el.get('src') or "")
+                img_url = img_url.strip()
+                if img_url and not img_url.startswith('data:') and 'logo' not in img_url.lower() and 'banner' not in img_url.lower():
+                    page_urls.append(img_url)
+                    
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': chapter_url
+        }
         
-        page_urls = []
-        for el in img_elements:
-            img_url = el.get('data-src') or el.get('data-lazy-src') or el.get('src') or ""
-            img_url = img_url.strip()
-            if img_url and not img_url.startswith('data:'):
-                page_urls.append(img_url)
-                
-        pages_list = []
-        for idx, page_url in enumerate(page_urls):
+        from concurrent.futures import ThreadPoolExecutor
+        
+        def download_single_page(item):
+            idx, page_url = item
             if not page_url:
-                continue
+                return idx, None
             if page_url.startswith('//'):
                 page_url = 'https:' + page_url
                 
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Referer': chapter_url
-                }
-                img_res = requests.get(page_url, headers=headers, timeout=15)
-                if img_res.status_code == 200:
-                    img_data = img_res.content
-                    encoded = base64.b64encode(img_data).decode('utf-8')
+            urls_to_try = [page_url]
+            if 'files.wordpress.com' in page_url or 'wordpress.com' in page_url:
+                clean_url = page_url.replace('https://', '').replace('http://', '')
+                urls_to_try.insert(0, f"https://i0.wp.com/{clean_url}")
+                urls_to_try.append(f"{page_url}?w=1200")
+                
+            img_data = None
+            detected_mime = 'image/jpeg'
+            
+            # Special referer for Manganato/Mangakakalot CDN protection
+            req_headers = headers.copy()
+            if 'mkklcdn' in page_url or 'manganato' in page_url:
+                req_headers['Referer'] = 'https://chapmanganato.to/'
+            
+            for u in urls_to_try:
+                try:
+                    img_res = scraper.get(u, headers=req_headers, timeout=12)
+                    ct = img_res.headers.get('Content-Type', '')
+                    if img_res.status_code == 200 and len(img_res.content) > 1000 and not ct.startswith('text/html'):
+                        img_data = img_res.content
+                        if ct.startswith('image/'):
+                            detected_mime = ct.split(';')[0]
+                        break
+                except Exception:
+                    pass
                     
-                    # Deduce extension
-                    ext = page_url.split('/')[-1].split('?')[0].split('.')[-1].lower()
-                    if ext not in ['jpg', 'jpeg', 'png', 'webp']:
-                        ext = 'png'
-                    mime = f"image/{ext}"
-                    if ext == 'jpg':
-                        mime = "image/jpeg"
-                        
-                    pages_list.append({
-                        "name": f"page_{idx + 1}.{ext}",
-                        "dataUrl": f"data:{mime};base64,{encoded}"
-                    })
-            except Exception as page_err:
-                print(f"Error downloading scraped image page {idx+1} from {page_url}: {page_err}")
-                continue
+                try:
+                    img_res = requests.get(u, headers=req_headers, timeout=12)
+                    ct = img_res.headers.get('Content-Type', '')
+                    if img_res.status_code == 200 and len(img_res.content) > 1000 and not ct.startswith('text/html'):
+                        img_data = img_res.content
+                        if ct.startswith('image/'):
+                            detected_mime = ct.split(';')[0]
+                        break
+                except Exception:
+                    pass
+                    
+            if img_data:
+                encoded = base64.b64encode(img_data).decode('utf-8')
+                ext = 'jpg'
+                if 'png' in detected_mime:
+                    ext = 'png'
+                elif 'webp' in detected_mime:
+                    ext = 'webp'
+                elif 'gif' in detected_mime:
+                    ext = 'gif'
+                    
+                return idx, {
+                    "name": f"page_{idx + 1}.{ext}",
+                    "dataUrl": f"data:{detected_mime};base64,{encoded}"
+                }
+            return idx, None
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(download_single_page, enumerate(page_urls)))
+            
+        results.sort(key=lambda x: x[0])
+        pages_list = [res[1] for res in results if res[1] is not None]
                 
         return jsonify({
             "status": "success",
@@ -821,7 +992,7 @@ def manga_fetch():
         is_mangadex = 'mangadex.org' in url_or_id
         
         if is_web_url and not is_mangadex:
-            return fetch_madara_manga(url_or_id)
+            return fetch_universal_manga(url_or_id)
             
         # Extract UUID (MangaDex UUID flow below)
         manga_id = None
@@ -912,9 +1083,9 @@ def manga_download_chapter():
         if not chapter_id:
             return jsonify({"status": "error", "message": "Missing chapter ID"}), 400
             
-        # Detect if it's a Madara URL
+        # Detect if it's a generic web chapter URL
         if chapter_id.startswith('http://') or chapter_id.startswith('https://'):
-            return download_madara_chapter(chapter_id)
+            return download_universal_chapter(chapter_id)
             
         # Get page list
         at_home_url = f"https://api.mangadex.org/at-home/server/{chapter_id}"
