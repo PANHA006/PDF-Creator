@@ -1,76 +1,95 @@
-# PDF Creator & OCR Scanner Dashboard
+# PDF Creator & Manga OCR Translation Studio
 
-A modern, high-performance web application designed for compiling, managing, and performing layout-aware OCR (Optical Character Recognition) on PDF documents. It features automatic manga downloader separation, fast direct PDF OCR parsing, and advanced AI-assisted review and transcription correction using Gemini.
-
----
-
-## Key Features
-
-1. **Manga Downloader with Chapter Separation**
-   - Scrape and download manga pages from supported online sources.
-   - Automatically compile pages into separate PDF files per chapter (e.g. `[Title] - Ch 1.pdf`, `[Title] - Ch 2.pdf`) instead of merging them all into one file.
-   - Automatically saves chapters into the local PDF library.
-
-2. **Direct PDF OCR Scanner (Tesseract)**
-   - Per-page layout-aware OCR text extraction executed entirely in-memory using **PyMuPDF (`fitz`)** and **Tesseract**.
-   - Groups text blocks logically, resolves hyphens, filters out scan noise, and formats paragraphs cleanly.
-   - Fully interactive page range selector ("All pages", "Current page", or specific page index).
-
-3. **Gemini AI OCR Review & Correction**
-   - Features a **"✨ AI Review"** button to automatically review, correct, and restructure OCR transcripts.
-   - Leverages **Gemini 2.0 Flash** via a direct HTTP REST API (bypassing restricted binary DLL blocks on Windows).
-   - Multimodally analyzes the page image against the Tesseract transcript to:
-     - **Update/Correct**: Fix misrecognized characters and typos.
-     - **Delete**: Automatically remove watermark text and scan noise.
-     - **Merge**: Combine dialogue splits belonging to the same speech bubble, concatenating their translations automatically.
-     - **Add**: Identify and insert missing text bubbles that Tesseract skipped.
+A modern, high-performance web application built with **Node.js** and **Express** for creating, managing, downloading, and translating Manga/Comic PDFs into fluent Khmer using **Google Gemini Vision AI**.
 
 ---
 
-## Installation & Setup
+## 🌟 Key Features
+
+1. **Image to PDF Creator**
+   - Convert multiple images into a single PDF in seconds.
+   - Customizable page options: **Original Size**, **A4 Portrait**, or **A4 Landscape** with automatic aspect ratio scaling and centering.
+   - Individual page rotation (90°, 180°, 270°) and compression quality controls.
+
+2. **Gemini Vision OCR & Khmer Translation**
+   - Multimodal OCR dialogue extraction powered by **Gemini Vision API** (`gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-flash-lite`).
+   - Translates Japanese/English/Chinese dialogues and titles into 100% natural, fluent **Khmer (ភាសាខ្មែរ)** while preserving character proper names.
+   - Intelligent CJK sound effect (SFX) noise filtering and multiline dialogue consolidation.
+
+3. **Live Manga Dialogue Overlay & Export**
+   - Automatically erases original speech bubbles with clean whiteout backgrounds.
+   - Renders wrapped Khmer text directly onto page images using authentic Windows Khmer fonts (**Khmer OS Content**, **Khmer OS Battambang**, **Khmer UI**).
+   - Export translated pages into a downloadable **Khmer Translated PDF** (`manga_khmer_translated.pdf`).
+
+4. **Universal Manga Downloader & Chapter Compiler**
+   - Scrape and download manga chapters from **MangaDex**, **ComicK**, and universal WordPress/Madara reader sites.
+   - Automatically compile downloaded chapters into volume PDFs or export as a **ZIP** archive.
+
+5. **AI Review & Proofreading**
+   - One-click **"✨ AI Review"** button to proofread OCR transcripts, fix typos, and refine Khmer translations.
+
+---
+
+## 🚀 Installation & Setup
 
 ### 1. Prerequisites
-- Python 3.10 or higher.
-- Tesseract OCR engine (required for local OCR scanning).
+- **Node.js**: `v18.0.0` or higher (`v20+` / `v24+` recommended)
+- **npm**: `v9.0.0` or higher
 
-### 2. Install Tesseract OCR (Windows)
-1. Download the Tesseract installer for Windows from:
-   [UB-Mannheim Tesseract OCR Wiki](https://github.com/UB-Mannheim/tesseract/wiki).
-2. During installation:
-   - Make sure to check and download **Khmer** and **English** language scripts under the additional language settings.
-3. The default path will be configured automatically at `C:\Program Files\Tesseract-OCR\tesseract.exe`.
-
-### 3. Clone & Environment Setup
-1. Setup Python virtual environment:
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate
-   ```
-2. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### 4. Gemini API Key Configuration
-Create a `.env` file in the project root directory and add your Google AI Studio Gemini API Key:
-```env
-GEMINI_API_KEY=your-actual-gemini-api-key-here
+### 2. Install Dependencies
+```bash
+npm install
 ```
-The application will automatically detect and load this key on startup.
+
+### 3. Gemini API Key Configuration
+Create a `.env` file in the project root directory:
+```env
+GEMINI_API_KEY=your_actual_gemini_api_key_here
+PORT=5000
+```
+*(Get a free API key from [Google AI Studio](https://aistudio.google.com/))*
 
 ---
 
-## Running the Application
+## 💻 Running the Application
 
-1. Start the Flask server:
-   ```bash
-   python app.py
-   ```
-2. Open your web browser and navigate to:
-   **[http://127.0.0.1:5000](http://127.0.0.1:5000)**
+### Start the Server:
+```bash
+npm start
+```
+
+### For Development (with auto-reload on file change):
+```bash
+npm run dev
+```
+
+Open your web browser and navigate to:
+**[http://127.0.0.1:5000](http://127.0.0.1:5000)**
 
 ---
 
-## Technical Stack
-- **Backend**: Python, Flask, PyMuPDF (fitz), Pillow, pytesseract, requests
-- **Frontend**: HTML5, Vanilla CSS, Vanilla JS, Lucide icons, IndexedDB (local storage)
+## 🧪 Running Automated Tests
+
+Run the full end-to-end test suite covering all features and API endpoints:
+```bash
+npm test
+```
+
+### Test Suites Included:
+- `test/pdf_features.test.js` — PDF generation, PDF page rendering, Khmer text overlay, and export.
+- `test/manga_features.test.js` — Manga scrapers and ZIP stream creation.
+- `test/gemini_features.test.js` — Gemini Vision OCR and AI Review handlers.
+- `test/api_endpoints.test.js` — Express HTTP API integration tests.
+
+---
+
+## 🛠️ Technical Stack
+
+- **Backend**: Node.js, Express.js
+- **PDF Manipulation**: `pdf-lib`
+- **PDF Rendering**: `pdfjs-dist` + `@napi-rs/canvas`
+- **Image Processing**: `sharp` & `@napi-rs/canvas`
+- **Web Scraping**: `axios`, `cheerio`
+- **ZIP Creation**: `archiver`
+- **AI & OCR Engine**: Google Gemini Multimodal Vision API
+- **Frontend**: HTML5, Modern CSS, Vanilla JavaScript, Lucide Icons, IndexedDB

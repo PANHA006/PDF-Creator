@@ -599,12 +599,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: formData
             });
             
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.message || 'Failed to scan PDF file');
+            const text = await response.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (jsonErr) {
+                throw new Error(`Server returned error (${response.status}): ${text.slice(0, 120)}`);
             }
-            
-            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to scan PDF file');
+            }
             if (data.status === 'success' && data.results) {
                 // Clear any running delete timers
                 ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
@@ -779,22 +783,41 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('lang', lang);
         formData.append('pages', pagesParam);
 
-        // Smooth incremental progress counter (0% -> 1% -> 2% ... -> 95% -> 100%)
+        // Natural Adaptive Progress Easing Engine with Dynamic Status Updates
         let currentProgress = 0;
         ocrProgressBar.style.width = '0%';
         ocrProgressPercent.textContent = '0%';
-        ocrStatusText.textContent = `កំពុងវិភាគអត្ថបទ លើទំព័រ ${pagesParam} ដោយ Gemini Vision AI...`;
+        ocrStatusText.textContent = `កំពុងចាប់ផ្តើមស្កែន និងវិភាគទំព័រ PDF...`;
 
+        const totalPagesToScan = pagesParam === 'all' ? (activePdfItem?.pages?.length || 1) : pagesParam.split(',').length;
+        const estimatedSeconds = Math.max(3, totalPagesToScan * 2);
+
+        const startTime = Date.now();
         const progressInterval = setInterval(() => {
-            if (currentProgress < 95) {
-                let increment = 1;
-                if (currentProgress < 30) increment = 3;
-                else if (currentProgress < 70) increment = 2;
-                else increment = 1;
-
-                currentProgress = Math.min(95, currentProgress + increment);
+            const elapsedSec = (Date.now() - startTime) / 1000;
+            // Smooth logarithmic progress curve based on real estimated workload
+            const targetPct = Math.min(95, Math.floor(95 * (1 - Math.exp(-elapsedSec / (estimatedSeconds * 0.55)))));
+            
+            if (currentProgress < targetPct) {
+                currentProgress = targetPct;
                 ocrProgressBar.style.width = `${currentProgress}%`;
                 ocrProgressPercent.textContent = `${currentProgress}%`;
+
+                // Meaningful real-time stage updates
+                if (currentProgress < 25) {
+                    ocrStatusText.textContent = `កំពុងបំប្លែងទំព័រ PDF ទៅជារូបភាព Vision Map... (${currentProgress}%)`;
+                } else if (currentProgress < 55) {
+                    ocrStatusText.textContent = `Gemini Vision AI កំពុងស្កែន និងវិភាគ Speech Bubbles... (${currentProgress}%)`;
+                } else if (currentProgress < 80) {
+                    ocrStatusText.textContent = `កំពុងបកប្រែពាក្យពេចន៍ និងសម្រួលឃ្លាជាភាសាខ្មែរ... (${currentProgress}%)`;
+                } else {
+                    ocrStatusText.textContent = `កំពុងផ្ទៀងផ្ទាត់ និងចងក្រងតារាងអត្ថបទ... (${currentProgress}%)`;
+                }
+            } else if (currentProgress < 97) {
+                // Micro-crawl to keep visual movement active without stalling
+                currentProgress = Math.min(97, currentProgress + 0.1);
+                ocrProgressBar.style.width = `${currentProgress.toFixed(1)}%`;
+                ocrProgressPercent.textContent = `${Math.floor(currentProgress)}%`;
             }
         }, 120);
 
@@ -802,13 +825,18 @@ document.addEventListener('DOMContentLoaded', () => {
             method: 'POST',
             body: formData
         })
-        .then(res => {
-            if (!res.ok) {
-                return res.json().then(err => {
-                    throw new Error(err.message || `Server error scanning PDF`);
-                });
+        .then(async res => {
+            const text = await res.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (jsonErr) {
+                throw new Error(`Server returned error (${res.status}): ${text.slice(0, 120)}`);
             }
-            return res.json();
+            if (!res.ok) {
+                throw new Error(data.message || `Server error scanning PDF (${res.status})`);
+            }
+            return data;
         })
         .then(data => {
             clearInterval(progressInterval);
@@ -1821,8 +1849,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 refreshChaptersDisplay();
                 
                 // Show area, hide empty
-                mangaEmptyState.classList.add('hidden');
-                mangaContentArea.classList.remove('hidden');
+                if (mangaEmptyState) mangaEmptyState.classList.add('hidden');
+                if (mangaContentArea) mangaContentArea.classList.remove('hidden');
                 
                 updateSelectedChaptersUI();
                 
@@ -1836,9 +1864,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 // Reset Progress bar and buttons
-                mangaDownloadProgressContainer.classList.add('hidden');
-                btnMangaDownloadZip.disabled = !selectedChaptersList.size;
-                btnMangaImportPdf.disabled = !selectedChaptersList.size;
+                if (mangaDownloadProgressContainer) mangaDownloadProgressContainer.classList.add('hidden');
+                if (btnMangaDownloadZip) btnMangaDownloadZip.disabled = !selectedChaptersList.size;
+                if (btnMangaImportPdf) btnMangaImportPdf.disabled = !selectedChaptersList.size;
 
                 logActivityEntry({
                     type: 'manga',
@@ -2063,7 +2091,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSelectedChaptersUI();
     });
 
-    // Sequential chapter downloads
+    // High-Speed Concurrent chapter downloads (Multi-Worker Pool)
     async function startChaptersDownloadSequence() {
         mangaDownloadProgressContainer.classList.remove('hidden');
         btnMangaFetch.disabled = true;
@@ -2072,55 +2100,63 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const queue = Array.from(selectedChaptersList);
         const total = queue.length;
+        let completed = 0;
+        let queueIndex = 0;
         
         downloadedPagesMap.clear();
 
-        for (let i = 0; i < total; i++) {
-            const uuid = queue[i];
-            const chCard = document.querySelector(`.chapter-card[data-id="${uuid}"]`);
-            const chLabel = chCard ? chCard.querySelector('.font-bold').textContent : `Chapter ${i+1}`;
-            
-            mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងទាញយក (${i+1}/${total}): ${chLabel}...`;
-            mangaDownloadDetails.textContent = `Fetching chapter pages data from server...`;
-            
-            const pct = Math.round((i / total) * 100);
-            mangaDownloadBar.style.width = `${pct}%`;
-            mangaDownloadPercent.textContent = `${pct}%`;
-            lucide.createIcons();
+        const CONCURRENCY = Math.min(3, total); // Download 3 chapters concurrently
 
-            try {
-                const formData = new FormData();
-                formData.append('chapter_id', uuid);
+        async function worker() {
+            while (queueIndex < total) {
+                const currentIndex = queueIndex++;
+                const uuid = queue[currentIndex];
+                const chCard = document.querySelector(`.chapter-card[data-id="${uuid}"]`);
+                const chLabel = chCard ? (chCard.querySelector('.font-bold')?.textContent || `Chapter ${currentIndex+1}`) : `Chapter ${currentIndex+1}`;
 
-                const response = await fetch('/api/manga/download-chapter', {
-                    method: 'POST',
-                    body: formData
-                });
+                mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងទាញយក (${completed + 1}/${total}): ${chLabel}...`;
+                lucide.createIcons();
 
-                if (!response.ok) {
-                    throw new Error(`Server returned code ${response.status}`);
-                }
+                try {
+                    const formData = new FormData();
+                    formData.append('chapter_id', uuid);
 
-                const data = await response.json();
-                if (data.status === 'success' && data.pages.length > 0) {
-                    downloadedPagesMap.set(uuid, data.pages);
-                    mangaDownloadDetails.textContent = `ជោគជ័យ៖ ទទួលបាន ${data.pages.length} ទំព័រ!`;
-                    
-                    if (chCard) {
-                        const pageLabelEl = chCard.querySelector('.text-\\[10px\\]');
-                        if (pageLabelEl) {
-                            pageLabelEl.innerHTML = `<span class="text-emerald-500 dark:text-emerald-400 font-bold">✓ ${data.pages.length} ទំព័រ (រួចរាល់)</span>`;
+                    const response = await fetch('/api/manga/download-chapter', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned code ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    if (data.status === 'success' && data.pages.length > 0) {
+                        downloadedPagesMap.set(uuid, data.pages);
+                        if (chCard) {
+                            const pageLabelEl = chCard.querySelector('.text-\\[10px\\]');
+                            if (pageLabelEl) {
+                                pageLabelEl.innerHTML = `<span class="text-emerald-500 dark:text-emerald-400 font-bold">✓ ${data.pages.length} ទំព័រ (រួចរាល់)</span>`;
+                            }
                         }
                     }
-                } else {
-                    console.warn(`Chapter ${uuid} has no pages or failed:`, data.message);
+                } catch (err) {
+                    console.error(`Error downloading chapter ${uuid}:`, err);
+                } finally {
+                    completed++;
+                    const pct = Math.round((completed / total) * 100);
+                    mangaDownloadBar.style.width = `${pct}%`;
+                    mangaDownloadPercent.textContent = `${pct}%`;
+                    mangaDownloadDetails.textContent = `បានទាញយក ${completed}/${total} ជំពូក (${downloadedPagesMap.size} ជោគជ័យ)`;
                 }
-            } catch (err) {
-                console.error(`Error downloading chapter ${uuid}:`, err);
-                mangaDownloadDetails.textContent = `បរាជ័យ៖ មិនអាចទាញយកភាគនេះបានឡើយ (${err.message})`;
-                alert(`បរាជ័យក្នុងការទាញយកភាគ៖ ${chLabel}`);
             }
         }
+
+        const workers = [];
+        for (let w = 0; w < CONCURRENCY; w++) {
+            workers.push(worker());
+        }
+        await Promise.all(workers);
 
         // Complete Progress
         mangaDownloadBar.style.width = '100%';
@@ -2146,17 +2182,30 @@ document.addEventListener('DOMContentLoaded', () => {
         mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងរៀបចំឯកសារ ZIP...`;
         lucide.createIcons();
 
-        const allImagesData = [];
-        for (const [chUuid, pages] of downloadedPagesMap.entries()) {
+        // Sort downloaded chapters strictly in ascending numerical order
+        const chapterEntries = Array.from(downloadedPagesMap.entries()).map(([chUuid, pages]) => {
             const chCard = document.querySelector(`.chapter-card[data-id="${chUuid}"]`);
-            const chNum = chCard ? chCard.dataset.chapter : 'ch';
+            const chNum = chCard ? parseFloat(chCard.dataset.chapter) : NaN;
+            const chStr = chCard ? (chCard.dataset.chapter || 'ch') : 'ch';
+            return { chUuid, pages, chNum, chStr };
+        });
+
+        chapterEntries.sort((a, b) => {
+            if (!isNaN(a.chNum) && !isNaN(b.chNum)) return a.chNum - b.chNum;
+            if (!isNaN(a.chNum)) return -1;
+            if (!isNaN(b.chNum)) return 1;
+            return a.chStr.localeCompare(b.chStr, undefined, { numeric: true });
+        });
+
+        const allImagesData = [];
+        chapterEntries.forEach(({ pages, chStr }) => {
             pages.forEach((p, idx) => {
                 allImagesData.push({
-                    name: `${currentMangaData.title}_Ch_${chNum}_Page_${idx + 1}.${p.name.split('.').pop()}`,
+                    name: `${currentMangaData.title}_Ch_${chStr}_Page_${idx + 1}.${p.name.split('.').pop()}`,
                     dataUrl: p.dataUrl
                 });
             });
-        }
+        });
 
         if (allImagesData.length === 0) {
             alert('គ្មានរូបភាពសម្រាប់ទាញយកឡើយ!');
@@ -2331,11 +2380,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
             } else {
-                // Separate PDF per chapter
-                for (const [chUuid, pages] of downloadedPagesMap.entries()) {
+                // Separate PDF per chapter - Sort in ascending chapter order
+                const chapterEntries = Array.from(downloadedPagesMap.entries()).map(([chUuid, pages]) => {
                     const chCard = document.querySelector(`.chapter-card[data-id="${chUuid}"]`);
-                    const chNum = chCard ? chCard.dataset.chapter : 'ch';
-                    
+                    const chNum = chCard ? parseFloat(chCard.dataset.chapter) : NaN;
+                    const chStr = chCard ? (chCard.dataset.chapter || 'ch') : 'ch';
+                    return { chUuid, pages, chNum, chStr };
+                });
+
+                chapterEntries.sort((a, b) => {
+                    if (!isNaN(a.chNum) && !isNaN(b.chNum)) return a.chNum - b.chNum;
+                    if (!isNaN(a.chNum)) return -1;
+                    if (!isNaN(b.chNum)) return 1;
+                    return a.chStr.localeCompare(b.chStr, undefined, { numeric: true });
+                });
+
+                for (const { pages, chStr } of chapterEntries) {
+                    const chNum = chStr;
                     if (!pages || pages.length === 0) continue;
                     
                     const formData = new FormData();
