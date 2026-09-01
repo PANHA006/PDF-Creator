@@ -275,6 +275,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const ocrLangSelect = document.getElementById('ocr-lang');
     const ocrPageSelect = document.getElementById('ocr-page-select');
     const btnScan = document.getElementById('btn-scan');
+    const modeStdOcr = document.getElementById('mode-std-ocr');
+    const modeMangaOcr = document.getElementById('mode-manga-ocr');
+    const btnScanLabel = document.getElementById('btn-scan-label');
     const ocrProgressContainer = document.getElementById('ocr-progress-container');
     const ocrProgressBar = document.getElementById('ocr-progress-bar');
     const ocrProgressPercent = document.getElementById('ocr-progress-percent');
@@ -283,6 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCopyText = document.getElementById('btn-copy-text');
     const btnSaveTxt = document.getElementById('btn-save-txt');
     const btnAiReview = document.getElementById('btn-ai-review');
+    const btnExportPdf = document.getElementById('btn-export-pdf');
     const btnMergeSelected = document.getElementById('btn-merge-selected');
     const ocrTableContainer = document.getElementById('ocr-table-container');
     const ocrTableBody = document.getElementById('ocr-table-body');
@@ -523,6 +527,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnAiReview) {
             btnAiReview.disabled = (ocrResults.length === 0);
         }
+        if (btnExportPdf) {
+            btnExportPdf.disabled = (ocrResults.length === 0);
+        }
     }
 
     function clearActivePdf() {
@@ -539,6 +546,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (btnAiReview) {
             btnAiReview.disabled = true;
+        }
+        if (btnExportPdf) {
+            btnExportPdf.disabled = true;
         }
 
         // Disable scan UI
@@ -754,7 +764,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ocrProgressContainer.classList.remove('hidden');
         ocrProgressBar.style.width = '0%';
         ocrProgressPercent.textContent = '0%';
-        ocrStatusText.textContent = 'កំពុងចាប់ផ្តើមស្កែនអត្ថបទពី PDF...';
+        ocrStatusText.textContent = 'កំពុងប្រើ Gemini AI ស្កែនអត្ថបទ និងបកប្រែជាភាសាខ្មែរ...';
         btnScan.disabled = true;
 
         let pagesParam = 'all';
@@ -769,10 +779,24 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('lang', lang);
         formData.append('pages', pagesParam);
 
-        // Set progress to 50% for visual feedback
-        ocrProgressBar.style.width = '50%';
-        ocrProgressPercent.textContent = '50%';
-        ocrStatusText.textContent = `កំពុងស្កែនទំព័រ ${pagesParam}...`;
+        // Smooth incremental progress counter (0% -> 1% -> 2% ... -> 95% -> 100%)
+        let currentProgress = 0;
+        ocrProgressBar.style.width = '0%';
+        ocrProgressPercent.textContent = '0%';
+        ocrStatusText.textContent = `កំពុងវិភាគអត្ថបទ លើទំព័រ ${pagesParam} ដោយ Gemini Vision AI...`;
+
+        const progressInterval = setInterval(() => {
+            if (currentProgress < 95) {
+                let increment = 1;
+                if (currentProgress < 30) increment = 3;
+                else if (currentProgress < 70) increment = 2;
+                else increment = 1;
+
+                currentProgress = Math.min(95, currentProgress + increment);
+                ocrProgressBar.style.width = `${currentProgress}%`;
+                ocrProgressPercent.textContent = `${currentProgress}%`;
+            }
+        }, 120);
 
         fetch('/api/scan-ocr-pdf', {
             method: 'POST',
@@ -787,12 +811,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return res.json();
         })
         .then(data => {
+            clearInterval(progressInterval);
             if (data.status === 'success' && data.results) {
                 // Clear previous delete timers to prevent memory leaks
                 ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
 
-                // Filter out garbage/noise text before saving
-                const filteredResults = data.results.filter(r => !isGarbageText(r.lineText, lang));
+                let filteredResults = data.results;
 
                 if (pagesParam === 'all') {
                     ocrResults = filteredResults;
@@ -818,13 +842,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     ocrProgressContainer.classList.add('hidden');
                     btnScan.disabled = false;
-                    alert('✨ ការស្កែនអត្ថបទដាច់ដោយឡែកពី PDF បានជោគជ័យ!');
-                }, 600);
+                }, 1000);
             } else {
-                throw new Error(data.message || 'No results returned from server');
+                throw new Error(data.message || 'Unknown scanning error');
             }
         })
         .catch(err => {
+            clearInterval(progressInterval);
             ocrProgressContainer.classList.add('hidden');
             btnScan.disabled = false;
             console.error(err);
@@ -879,29 +903,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     function adjustGridColumns() {
-        if (ocrResults.length === 0) return;
-        let maxTextLen = 30;
-        let maxTransLen = 30;
-        ocrResults.forEach(res => {
-            if (res.lineText && res.lineText.length > maxTextLen) {
-                maxTextLen = res.lineText.length;
-            }
-            if (res.transText && res.transText.length > maxTransLen) {
-                maxTransLen = res.transText.length;
-            }
-        });
-        
-        const colTextWidth = `${Math.max(40, maxTextLen + 4)}ch`;
-        const colTransWidth = `${Math.max(40, maxTransLen + 4)}ch`;
-        currentGridCols = `40px 40px 70px 70px 90px ${colTextWidth} ${colTransWidth}`;
+        currentGridCols = '36px 36px 65px 50px 75px minmax(280px, 1fr) minmax(280px, 1fr)';
 
-        // Apply grid column width values directly to the header element to prevent browser sticky inheritance bugs
         const headerGrid = document.querySelector('#ocr-table-container .grid.sticky');
         if (headerGrid) {
             headerGrid.style.gridTemplateColumns = currentGridCols;
         }
         
-        // Also keep the fallback CSS property just in case
         ocrTableContainer.style.setProperty('--ocr-grid-cols', currentGridCols);
     }
 
@@ -967,72 +975,68 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Normal Row Layout (Delete on the left, Checkbox next, etc.)
-            rowEl.className = 'grid justify-start gap-4 px-4 py-2 bg-white dark:bg-slate-950/40 hover:bg-slate-50 dark:hover:bg-slate-900/20 transition duration-150 border-b border-slate-200 dark:border-slate-800/80 w-full';
+            rowEl.className = 'grid justify-start gap-4 px-4 py-2 bg-white dark:bg-slate-950/40 hover:bg-slate-50 dark:hover:bg-slate-900/20 transition duration-150 border-b border-slate-200 dark:border-slate-800/80 w-full items-start';
             rowEl.style.gridTemplateColumns = currentGridCols;
 
+            const estTextRows = Math.max(1, Math.ceil((res.lineText || '').length / 45));
+            const estTransRows = Math.max(1, Math.ceil((res.transText || '').length / 45));
+
             rowEl.innerHTML = `
-                <div class="flex justify-center border-r border-slate-100 dark:border-slate-800/80 pr-2 items-center">
+                <div class="flex justify-center border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 items-center">
                     <button class="ocr-btn-delete p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-400 hover:text-rose-500 transition" title="លុបឃ្លានេះ">
                         <i data-lucide="trash" class="w-3.5 h-3.5"></i>
                     </button>
                 </div>
-                <div class="flex items-center justify-center border-r border-slate-100 dark:border-slate-800/80 pr-2">
+                <div class="flex items-center justify-center border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2">
                     <input type="checkbox" class="ocr-row-checkbox w-3.5 h-3.5 text-brand-600 border-slate-300 rounded focus:ring-brand-500 cursor-pointer" data-id="${res.id}">
                 </div>
-                <div class="font-mono text-[10px] text-slate-500 font-bold border-r border-slate-100 dark:border-slate-800/80 pr-2 flex items-center">${res.id}</div>
-                <div class="font-mono text-[11px] text-slate-400 dark:text-slate-500 border-r border-slate-100 dark:border-slate-800/80 pr-2 flex items-center">${res.lineNum}</div>
-                <div class="text-[11px] font-semibold text-slate-700 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800/80 pr-2 flex items-center">ទំព័រទី ${res.pageNum}</div>
-                <div class="border-r border-slate-100 dark:border-slate-800/80 pr-4 flex items-center">
-                    <input type="text" class="ocr-text-input inline-block w-auto bg-transparent border border-transparent rounded-lg px-2 py-1 text-xs text-slate-800 dark:text-slate-200 font-medium transition focus:outline-none focus:ring-0" style="min-width: 250px; width: ${(res.lineText || '').length + 2}ch;" value="${res.lineText}">
+                <div class="font-mono text-[10px] text-slate-500 font-bold border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 flex items-center">${res.id}</div>
+                <div class="font-mono text-[11px] text-slate-400 dark:text-slate-500 border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 flex items-center">${res.lineNum}</div>
+                <div class="text-[11px] font-semibold text-slate-700 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 flex items-center">ទំព័រទី ${res.pageNum}</div>
+                <div class="border-r border-slate-100 dark:border-slate-800/80 pr-4 flex items-start w-full">
+                    <textarea class="ocr-text-input w-full min-h-[30px] bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/80 focus:border-brand-500 focus:bg-white dark:focus:bg-slate-900 rounded-lg px-2.5 py-1.5 text-xs leading-normal text-slate-800 dark:text-slate-100 font-medium transition focus:outline-none resize-none overflow-hidden" rows="${estTextRows}" placeholder="Original text...">${res.lineText || ''}</textarea>
                 </div>
-                <div class="flex items-center">
-                    <input type="text" class="ocr-trans-input inline-block w-auto bg-transparent border border-transparent rounded-lg px-2 py-1 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 transition focus:outline-none focus:ring-0" placeholder="បញ្ចូលការបកប្រែ/កែសម្រួល..." style="min-width: 250px; width: ${(res.transText || '').length + 2}ch;" value="${res.transText}">
+                <div class="flex items-start w-full">
+                    <textarea class="ocr-trans-input w-full min-h-[30px] bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/80 focus:border-brand-500 focus:bg-white dark:focus:bg-slate-900 rounded-lg px-2.5 py-1.5 text-xs leading-normal text-slate-800 dark:text-slate-100 font-medium placeholder-slate-400 dark:placeholder-slate-600 transition focus:outline-none resize-none overflow-hidden" rows="${estTransRows}" placeholder="បញ្ចូលការបកប្រែ/កែសម្រួល...">${res.transText || ''}</textarea>
                 </div>
             `;
 
-            // Track input text changes in state dynamically and auto-resize in real-time
-            rowEl.querySelector('.ocr-text-input').addEventListener('input', (e) => {
+            const textInput = rowEl.querySelector('.ocr-text-input');
+            const transInput = rowEl.querySelector('.ocr-trans-input');
+
+            const autoFitTextarea = (el) => {
+                if (!el) return;
+                el.style.height = 'auto';
+                el.style.height = Math.max(30, el.scrollHeight + 4) + 'px';
+            };
+
+            autoFitTextarea(textInput);
+            autoFitTextarea(transInput);
+
+            textInput.addEventListener('input', (e) => {
                 res.lineText = e.target.value;
-                e.target.style.width = (e.target.value.length + 2) + 'ch';
-                adjustGridColumns();
+                autoFitTextarea(e.target);
                 saveOcrResults();
             });
-            rowEl.querySelector('.ocr-trans-input').addEventListener('input', (e) => {
+            transInput.addEventListener('input', (e) => {
                 res.transText = e.target.value;
-                e.target.style.width = (e.target.value.length + 2) + 'ch';
-                adjustGridColumns();
+                autoFitTextarea(e.target);
                 saveOcrResults();
             });
 
-            // Delete specific row trigger (Soft delete with 5s countdown)
+            // Delete specific row trigger (Instant deletion)
             rowEl.querySelector('.ocr-btn-delete').addEventListener('click', (e) => {
                 e.stopPropagation();
                 
-                res.isPendingDelete = true;
-                res.countdown = 5;
-
                 if (res.deleteTimer) {
                     clearInterval(res.deleteTimer);
+                    res.deleteTimer = null;
                 }
 
-                res.deleteTimer = setInterval(() => {
-                    res.countdown--;
-                    if (res.countdown <= 0) {
-                        clearInterval(res.deleteTimer);
-                        res.deleteTimer = null;
-
-                        // Permanent deletion
-                        ocrResults = ocrResults.filter(r => r.id !== res.id);
-                        renumberPhraseIds();
-                        renderOcrTable();
-                        updateMergeButtonState();
-                    } else {
-                        // Re-draw table to show updated countdown
-                        renderOcrTable();
-                    }
-                }, 1000);
-
-                renderOcrTable();
+                ocrResults = ocrResults.filter(r => r.id !== res.id);
+                rowEl.remove();
+                renumberPhraseIds();
+                saveOcrResults();
                 updateMergeButtonState();
             });
 
@@ -1044,7 +1048,31 @@ document.addEventListener('DOMContentLoaded', () => {
             ocrTableBody.appendChild(rowEl);
         });
 
+        // Global ResizeObserver pass on all table textareas to fit height dynamically
+        if (window.ocrResizeObserver) {
+            window.ocrResizeObserver.disconnect();
+        }
+        window.ocrResizeObserver = new ResizeObserver((entries) => {
+            entries.forEach(entry => {
+                const ta = entry.target;
+                if (ta) {
+                    ta.style.height = 'auto';
+                    ta.style.height = (ta.scrollHeight + 4) + 'px';
+                }
+            });
+        });
+
+        ocrTableBody.querySelectorAll('textarea').forEach(ta => {
+            window.ocrResizeObserver.observe(ta);
+        });
+
         saveOcrResults();
+        if (btnExportPdf) {
+            btnExportPdf.disabled = (ocrResults.length === 0);
+        }
+        if (btnAiReview) {
+            btnAiReview.disabled = (ocrResults.length === 0);
+        }
         lucide.createIcons();
     }
 
@@ -1257,85 +1285,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const lang = ocrLangSelect ? ocrLangSelect.value : 'auto';
                 
                 data.results.forEach(op => {
-                    const action = op.action;
-                    
-                    if (action === 'update') {
-                        const target = pageItems.find(r => r.id === op.id);
-                        if (target) {
-                            const newText = op.text.trim();
-                            if (target.lineText !== newText) {
-                                target.lineText = newText;
-                                updateCount++;
-                            }
+                    const target = pageItems.find(r => r.id === op.id);
+                    if (target) {
+                        let isChanged = false;
+                        if (op.text && op.text.trim() && target.lineText !== op.text.trim()) {
+                            target.lineText = op.text.trim();
+                            isChanged = true;
                         }
-                    } 
-                    else if (action === 'delete') {
-                        const initialLength = pageItems.length;
-                        pageItems = pageItems.filter(r => r.id !== op.id);
-                        if (pageItems.length < initialLength) {
-                            deleteCount++;
+                        if (op.khmer_translation && op.khmer_translation.trim() && target.transText !== op.khmer_translation.trim()) {
+                            target.transText = op.khmer_translation.trim();
+                            isChanged = true;
                         }
-                    } 
-                    else if (action === 'merge') {
-                        const mergeIds = op.ids || [];
-                        if (mergeIds.length > 1) {
-                            const itemsToMerge = pageItems.filter(r => mergeIds.includes(r.id));
-                            if (itemsToMerge.length > 0) {
-                                const firstIndex = pageItems.findIndex(r => r.id === itemsToMerge[0].id);
-                                
-                                const mergedTrans = itemsToMerge
-                                    .map(r => r.transText)
-                                    .filter(t => t && t.trim().length > 0)
-                                    .join(' / ');
-                                    
-                                const mergedItem = {
-                                    id: itemsToMerge[0].id,
-                                    lineNum: itemsToMerge[0].lineNum,
-                                    pageNum: currentPage,
-                                    lineText: op.text.trim(),
-                                    transText: mergedTrans
-                                };
-                                
-                                pageItems = pageItems.filter(r => !mergeIds.includes(r.id));
-                                
-                                if (firstIndex !== -1) {
-                                    pageItems.splice(firstIndex, 0, mergedItem);
-                                } else {
-                                    pageItems.push(mergedItem);
-                                }
-                                mergeCount++;
-                            }
-                        }
-                    } 
-                    else if (action === 'add') {
-                        const text = op.text.trim();
-                        if (text && !isGarbageText(text, lang)) {
-                            const newItem = {
-                                id: `add-${Date.now()}-${Math.random()}`,
-                                lineNum: 999,
-                                pageNum: currentPage,
-                                lineText: text,
-                                transText: ""
-                            };
-                            
-                            const afterId = op.afterId;
-                            const insertIndex = pageItems.findIndex(r => r.id === afterId);
-                            
-                            if (insertIndex !== -1) {
-                                pageItems.splice(insertIndex + 1, 0, newItem);
-                            } else {
-                                pageItems.push(newItem);
-                            }
-                            addCount++;
-                        }
+                        if (isChanged) updateCount++;
                     }
                 });
 
                 // Clear any running delete timers
                 ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
-
-                ocrResults = ocrResults.filter(r => r.pageNum !== currentPage);
-                ocrResults.push(...pageItems);
 
                 renumberPhraseIds();
                 saveOcrResults();
@@ -1373,6 +1339,84 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('មានបញ្ហាក្នុងការផ្ទៀងផ្ទាត់ជាមួយ AI៖\n' + err.message);
         });
     });
+
+    let currentTranslatedPdfBlob = null;
+
+    if (btnExportPdf) {
+        btnExportPdf.addEventListener('click', () => {
+            if (!currentPdfBlob) {
+                alert('សូមជ្រើសរើស ឬស្កែន PDF ជាមុនសិន!');
+                return;
+            }
+            if (!ocrResults || ocrResults.length === 0) {
+                alert('គ្មានអត្ថបទបកប្រែនៅក្នុងតារាង ដើម្បីបង្កើត PDF ឡើយ!');
+                return;
+            }
+
+            ocrProgressContainer.classList.remove('hidden');
+            ocrProgressBar.style.width = '20%';
+            ocrProgressPercent.textContent = '20%';
+            ocrStatusText.textContent = 'កំពុងរៀបចំ និងសរសេរអក្សរខ្មែរចូលក្នុង PDF...';
+            btnExportPdf.disabled = true;
+
+            const formData = new FormData();
+            formData.append('file', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+            formData.append('ocr_items', JSON.stringify(ocrResults));
+
+            ocrProgressBar.style.width = '60%';
+            ocrProgressPercent.textContent = '60%';
+
+            fetch('/api/export-translated-pdf', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error('មិនអាចបង្កើត PDF បកប្រែបានឡើយ');
+                }
+                return res.blob();
+            })
+            .then(blob => {
+                currentTranslatedPdfBlob = blob;
+
+                // 1. Render the translated Khmer PDF directly into the main PDF Preview Viewport
+                renderPdfViewport(blob);
+
+                // 2. Enable the Download PDF button in active-pdf-info bar
+                if (btnDownload) {
+                    btnDownload.disabled = false;
+                }
+
+                ocrProgressBar.style.width = '100%';
+                ocrProgressPercent.textContent = '100%';
+                ocrStatusText.textContent = 'បង្កើត PDF បកប្រែជោគជ័យ!';
+
+                setTimeout(() => {
+                    ocrProgressContainer.classList.add('hidden');
+                    btnExportPdf.disabled = false;
+                    alert('🎉 PDF បកប្រែជាភាសាខ្មែរត្រូវបានរៀបចំរៀបរយ!\nលោកអ្នកអាចពិនិត្យមើលទំព័រលើ PDF Preview (ផ្ទាំងខាងឆ្វេង) និងចុចប៊ូតុង "ទាញយក PDF" បាន។');
+                }, 600);
+            })
+            .catch(err => {
+                ocrProgressContainer.classList.add('hidden');
+                btnExportPdf.disabled = false;
+                alert('កំហុសក្នុងការបង្កើត PDF: ' + err.message);
+            });
+        });
+    }
+
+    // Download button handler (Handles downloading either translated PDF or active PDF)
+    if (btnDownload) {
+        btnDownload.addEventListener('click', () => {
+            const blobToDownload = currentTranslatedPdfBlob || currentPdfBlob;
+            if (!blobToDownload) {
+                alert('គ្មានឯកសារ PDF សម្រាប់ទាញយកឡើយ');
+                return;
+            }
+            const name = currentTranslatedPdfBlob ? 'manga_khmer_translated.pdf' : (activePdfFile ? activePdfFile.name : 'document.pdf');
+            downloadPdfFile(blobToDownload, name);
+        });
+    }
 
     // Trigger hidden file input click on Import TXT click
     btnImportTxt.addEventListener('click', () => {

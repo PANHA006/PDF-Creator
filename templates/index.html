@@ -225,17 +225,19 @@
                 <div id="content-ocr" class="flex-1 hidden flex-col gap-6">
                     <!-- OCR settings header -->
                     <div class="bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800/80 p-4 rounded-2xl space-y-4">
-                        <h3 class="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                            <i data-lucide="languages" class="w-4 h-4 text-brand-500"></i> ការកំណត់សម្រាប់ការស្កែនអក្សរ
-                        </h3>
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                <i data-lucide="sparkles" class="w-4 h-4 text-amber-500"></i> ⚡ Direct Vision OCR (Gemini AI)
+                            </h3>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">High Accuracy</span>
+                        </div>
                         
                         <div class="grid grid-cols-2 gap-4">
                             <div class="flex flex-col gap-1.5">
                                 <label class="text-xs font-bold text-slate-500 dark:text-slate-400">ភាសាស្កែន (Language)</label>
                                 <div class="relative">
                                     <select id="ocr-lang" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-brand-500 appearance-none cursor-pointer">
-                                        <option value="auto" selected>Auto Detect (ស្វែងរកដោយស្វ័យប្រវត្ត)</option>
-                                        <option value="khm+eng">Khmer + English</option>
+                                        <option value="auto" selected>Auto Detect + Khmer Translation</option>
                                         <option value="khm">ភាសាខ្មែរ (Khmer)</option>
                                         <option value="eng">English</option>
                                     </select>
@@ -259,22 +261,34 @@
                         </div>
 
                         <button id="btn-scan" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm px-6 py-3 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none" disabled>
-                            <i data-lucide="scan" class="w-4 h-4"></i> 🔍 Start Scan Text
+                            <i data-lucide="sparkles" class="w-4 h-4 text-amber-300"></i> <span id="btn-scan-label">⚡ Start Scan Text & Translate (Gemini AI)</span>
                         </button>
                     </div>
 
                     <!-- OCR Progress Loading State (Hidden by default) -->
-                    <div id="ocr-progress-container" class="hidden border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-2 bg-slate-50/50 dark:bg-slate-900/10">
-                        <div class="flex items-center justify-between text-xs">
-                            <span class="font-bold text-brand-600 dark:text-brand-400 flex items-center gap-1.5">
-                                <i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងស្កែនអត្ថបទ...
-                            </span>
-                            <span id="ocr-progress-percent" class="font-semibold text-slate-500">0%</span>
+                    <div id="ocr-progress-container" class="hidden border border-amber-500/30 dark:border-amber-500/20 rounded-2xl p-4 space-y-3 bg-gradient-to-r from-amber-500/5 via-purple-500/5 to-indigo-500/5 dark:from-amber-950/20 dark:via-purple-950/20 dark:to-indigo-950/20 backdrop-blur-md shadow-lg transition-all duration-300">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <div class="relative flex items-center justify-center">
+                                    <span class="absolute w-6 h-6 rounded-full bg-amber-500/20 animate-ping-slow"></span>
+                                    <i data-lucide="sparkles" class="w-4 h-4 text-amber-500 relative z-10 animate-spin-slow"></i>
+                                </div>
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                        កំពុងស្កែន និងបកប្រែអត្ថបទ...
+                                    </span>
+                                    <span id="ocr-status-text" class="text-[11px] font-medium text-amber-600 dark:text-amber-400">Initializing Gemini AI Vision Engine...</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Gemini Vision AI</span>
+                                <span id="ocr-progress-percent" class="font-mono text-xs font-black text-amber-500 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">0%</span>
+                            </div>
                         </div>
-                        <div class="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                            <div id="ocr-progress-bar" class="bg-brand-600 h-full w-0 transition-all duration-200"></div>
+                        
+                        <div class="relative w-full bg-slate-200/80 dark:bg-slate-800/80 h-2.5 rounded-full overflow-hidden p-0.5">
+                            <div id="ocr-progress-bar" class="animated-progress-bar h-full rounded-full w-0 transition-all duration-300 ease-out"></div>
                         </div>
-                        <p id="ocr-status-text" class="text-[10px] text-slate-400 italic">Initializing engine...</p>
                     </div>
 
                     <!-- OCR Result Table (Editable Transcript) -->
@@ -296,16 +310,19 @@
                                     <button id="btn-ai-review" class="border border-violet-200 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 hover:bg-violet-100 dark:hover:bg-violet-900/40 text-violet-600 dark:text-violet-400 font-bold text-[10px] uppercase px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 active:scale-95 shadow-sm disabled:opacity-40" disabled title="Review and correct page OCR transcript using Gemini AI">
                                         <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> AI Review
                                     </button>
+                                    <button id="btn-export-pdf" class="border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] uppercase px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 active:scale-95 shadow-sm disabled:opacity-40" disabled title="Export clean Khmer-typeset Manga PDF">
+                                        <i data-lucide="file-check" class="w-3.5 h-3.5 text-emerald-500"></i> Export Khmer PDF
+                                    </button>
                                     <button id="btn-toggle-fullscreen" class="border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 font-bold text-[10px] uppercase px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 active:scale-95 shadow-sm" title="Toggle Fullscreen">
                                         <i data-lucide="maximize" class="w-3.5 h-3.5"></i> ពេញអេក្រង់ (Fullscreen)
                                     </button>
                                 </div>
                             </div>
                             
-                            <div class="flex-1 overflow-auto border border-slate-100 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 custom-scrollbar flex flex-col overflow-x-auto">
-                                <div class="min-w-max flex-1 flex flex-col">
+                            <div class="flex-1 overflow-auto border border-slate-100 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 custom-scrollbar flex flex-col">
+                                <div class="w-full flex-1 flex flex-col min-w-[700px]">
                                     <!-- CSS Grid Header -->
-                                    <div class="grid justify-start bg-slate-100 dark:bg-slate-900/80 text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10 py-2.5 px-4 gap-4 w-full" style="grid-template-columns: var(--ocr-grid-cols, 40px 40px 70px 70px 90px 1fr 1fr);">
+                                    <div class="grid justify-start bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 py-2.5 px-4 gap-4 w-full shadow-md" style="grid-template-columns: var(--ocr-grid-cols, 36px 36px 65px 50px 75px minmax(280px, 1fr) minmax(280px, 1fr));">
                                         <div class="flex justify-center border-r border-slate-200 dark:border-slate-800 pr-2 py-1">
                                             <button id="ocr-btn-delete-all" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-500 transition" title="លុបឃ្លាទាំងអស់ (Delete All)">
                                                 <i data-lucide="trash" class="w-3.5 h-3.5"></i>
