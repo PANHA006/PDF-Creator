@@ -2,12 +2,11 @@ const axios = require('axios');
 const sharp = require('sharp');
 
 const MODELS_TO_TRY = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash-8b'
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3.7-flash',
+  'gemini-flash-latest'
 ];
 
 /**
@@ -18,19 +17,28 @@ async function callGeminiApi(apiKey, payload) {
 
   for (const model of MODELS_TO_TRY) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const startReqTime = Date.now();
     try {
+      console.log(`   📡 [Gemini AI] Connecting to model: \x1b[36m${model}\x1b[0m ...`);
       const resp = await axios.post(url, payload, {
         headers: { 'Content-Type': 'application/json' },
-        timeout: 60000
+        timeout: 45000
       });
 
       if (resp.status === 200 && resp.data) {
+        const reqDuration = ((Date.now() - startReqTime) / 1000).toFixed(2);
+        console.log(`   ✨ [Gemini AI] Model \x1b[32m${model}\x1b[0m responded successfully (\x1b[33m${reqDuration}s\x1b[0m)`);
         return resp.data;
       }
     } catch (err) {
       const errMsg = err.response?.data?.error?.message || err.response?.data || err.message;
       lastError = `Model ${model} failed (${err.response?.status || 'Network'}): ${errMsg}`;
-      console.warn(`[GeminiService] ${lastError}. Trying next model...`);
+      console.warn(`   ⚠️ [Gemini AI] ${lastError}. Trying next model...`);
+
+      // Fast fail if API key is invalid or quota/permission blocked rather than waiting for all fallback loops
+      if (err.response?.status === 400 && typeof errMsg === 'string' && (errMsg.includes('API key not valid') || errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key expired'))) {
+        throw new Error(`Gemini API Key មិនត្រឹមត្រូវ (API Key Invalid): សូមពិនិត្យមើល Gemini API Key របស់អ្នកម្តងទៀត។`);
+      }
     }
   }
 
@@ -56,14 +64,13 @@ function cleanJsonMarkdown(text) {
  */
 async function scanOcrImage(apiKey, imageBuffer, pageNum, langOption = 'auto', isMangaDirect = false) {
   let processedBuffer = imageBuffer;
-  let mimeType = 'image/png';
+  let mimeType = 'image/jpeg';
 
   try {
     processedBuffer = await sharp(imageBuffer)
-      .resize({ width: 1400, withoutEnlargement: true })
-      .jpeg({ quality: 82 })
+      .resize({ width: 1100, withoutEnlargement: true })
+      .jpeg({ quality: 80, progressive: true })
       .toBuffer();
-    mimeType = 'image/jpeg';
   } catch (err) {
     console.warn(`[GeminiService] Page ${pageNum} sharp optimization warning:`, err.message);
   }
@@ -184,6 +191,12 @@ Please respond ONLY with a JSON array matching this exact schema:
         ...(isMangaDirect ? { isMangaBubble: true } : {})
       });
     }
+  }
+
+  console.log(`   ✓ [Page ${pageNum}] Extracted \x1b[32m${results.length}\x1b[0m dialogues/text blocks (Khmer translated)`);
+  if (results.length > 0) {
+    const sample = results[0];
+    console.log(`     ↳ Sample: "${sample.lineText.slice(0, 40)}" ➜ \x1b[35m"${sample.transText.slice(0, 40)}"\x1b[0m`);
   }
 
   return results;

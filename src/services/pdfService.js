@@ -106,9 +106,9 @@ async function generatePdfFromImages(filesMap, metadata, pageSizeOption = 'origi
 }
 
 /**
- * Render PDF pages to PNG image buffers & base64 data URLs
+ * Render PDF pages to PNG/JPEG image buffers & base64 data URLs with high performance
  */
-async function renderPdfPagesToImages(pdfBuffer, dpi = 150) {
+async function renderPdfPagesToImages(pdfBuffer, dpi = 110) {
   const pdfjs = getPdfJs();
   const canvasFactory = new NodeCanvasFactory();
 
@@ -125,8 +125,10 @@ async function renderPdfPagesToImages(pdfBuffer, dpi = 150) {
 
   for (let i = 1; i <= numPages; i++) {
     const page = await doc.getPage(i);
-    const scale = dpi / 72.0;
-    const viewport = page.getViewport({ scale });
+    // Target optimal ~1100-1300px width for fast rendering and high OCR accuracy
+    const rawViewport = page.getViewport({ scale: 1.0 });
+    const targetScale = Math.min(2.0, Math.max(1.0, 1200 / (rawViewport.width || 800)));
+    const viewport = page.getViewport({ scale: targetScale });
 
     const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
     const renderContext = {
@@ -136,14 +138,14 @@ async function renderPdfPagesToImages(pdfBuffer, dpi = 150) {
     };
 
     await page.render(renderContext).promise;
-    const pngBuffer = canvasAndContext.canvas.toBuffer('image/png');
-    const base64 = pngBuffer.toString('base64');
+    const jpegBuffer = canvasAndContext.canvas.toBuffer('image/jpeg', { quality: 0.85 });
+    const base64 = jpegBuffer.toString('base64');
 
     pages.push({
       pageNum: i,
-      name: `page_${i}.png`,
-      buffer: pngBuffer,
-      dataUrl: `data:image/png;base64,${base64}`
+      name: `page_${i}.jpg`,
+      buffer: jpegBuffer,
+      dataUrl: `data:image/jpeg;base64,${base64}`
     });
 
     canvasFactory.destroy(canvasAndContext);
@@ -153,10 +155,10 @@ async function renderPdfPagesToImages(pdfBuffer, dpi = 150) {
 }
 
 /**
- * Export translated PDF by replacing pages with rendered Khmer text overlays
+ * Apply Khmer translated text overlays directly into PDF speech bubbles
  */
-async function exportTranslatedPdf(pdfBuffer, ocrItems = []) {
-  const renderedPages = await renderPdfPagesToImages(pdfBuffer, 150);
+async function applyKhmerOverlayToPdf(pdfBuffer, ocrItems = []) {
+  const renderedPages = await renderPdfPagesToImages(pdfBuffer, 120);
   const originalDoc = await PDFDocument.load(pdfBuffer);
   const outDoc = await PDFDocument.create();
 
@@ -172,7 +174,7 @@ async function exportTranslatedPdf(pdfBuffer, ocrItems = []) {
     if (pageItems.length > 0) {
       const pageImageObj = renderedPages.find(p => p.pageNum === pageNum);
       if (pageImageObj) {
-        // Overlay Khmer text onto rendered page image
+        // Clean speech bubbles & overlay Khmer text onto rendered page image
         const translatedImgBuffer = await renderMangaPageKhmer(pageImageObj.buffer, pageItems);
         const embeddedImg = await outDoc.embedPng(translatedImgBuffer);
 
@@ -199,5 +201,5 @@ async function exportTranslatedPdf(pdfBuffer, ocrItems = []) {
 module.exports = {
   generatePdfFromImages,
   renderPdfPagesToImages,
-  exportTranslatedPdf
+  applyKhmerOverlayToPdf
 };

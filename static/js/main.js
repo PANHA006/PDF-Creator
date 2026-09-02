@@ -278,6 +278,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const modeStdOcr = document.getElementById('mode-std-ocr');
     const modeMangaOcr = document.getElementById('mode-manga-ocr');
     const btnScanLabel = document.getElementById('btn-scan-label');
+    const btnApplyKhmerPdf = document.getElementById('btn-apply-khmer-pdf');
+    const btnDownloadDocx = document.getElementById('btn-download-docx');
     const ocrProgressContainer = document.getElementById('ocr-progress-container');
     const ocrProgressBar = document.getElementById('ocr-progress-bar');
     const ocrProgressPercent = document.getElementById('ocr-progress-percent');
@@ -286,7 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCopyText = document.getElementById('btn-copy-text');
     const btnSaveTxt = document.getElementById('btn-save-txt');
     const btnAiReview = document.getElementById('btn-ai-review');
-    const btnExportPdf = document.getElementById('btn-export-pdf');
     const btnMergeSelected = document.getElementById('btn-merge-selected');
     const ocrTableContainer = document.getElementById('ocr-table-container');
     const ocrTableBody = document.getElementById('ocr-table-body');
@@ -297,6 +298,113 @@ document.addEventListener('DOMContentLoaded', () => {
     const importTxtInput = document.getElementById('import-txt-input');
     const btnAddAbove = document.getElementById('btn-add-above');
     const btnAddBelow = document.getElementById('btn-add-below');
+
+    // DOM Elements - Gemini API Key Management
+    const btnHeaderApiKey = document.getElementById('btn-header-api-key');
+    const headerApiStatus = document.getElementById('header-api-status');
+    const modalApiKey = document.getElementById('modal-api-key');
+    const btnCloseApiModal = document.getElementById('btn-close-api-modal');
+    const btnModalApiCancel = document.getElementById('btn-modal-api-cancel');
+    const btnModalApiSave = document.getElementById('btn-modal-api-save');
+    const modalGeminiKeyInput = document.getElementById('modal-gemini-key-input');
+    const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
+    const btnSaveKeyOcr = document.getElementById('btn-save-key-ocr');
+    const apiKeyStatusText = document.getElementById('api-key-status-text');
+
+    let serverHasKey = false;
+
+    function getGeminiApiKey() {
+        return (localStorage.getItem('gemini_api_key') || '').trim();
+    }
+
+    function setGeminiApiKey(key) {
+        const cleaned = (key || '').trim();
+        if (cleaned) {
+            localStorage.setItem('gemini_api_key', cleaned);
+        } else {
+            localStorage.removeItem('gemini_api_key');
+        }
+        updateApiKeyUI();
+    }
+
+    function updateApiKeyUI() {
+        const localKey = getGeminiApiKey();
+        const hasKey = !!localKey || serverHasKey;
+
+        if (geminiApiKeyInput) {
+            geminiApiKeyInput.value = localKey || (serverHasKey ? '••••••••••••••••' : '');
+        }
+        if (modalGeminiKeyInput) {
+            modalGeminiKeyInput.value = localKey;
+        }
+
+        if (apiKeyStatusText) {
+            if (hasKey) {
+                apiKeyStatusText.textContent = '✓ រួចរាល់ (Key Ready)';
+                apiKeyStatusText.className = 'text-[10px] text-emerald-600 dark:text-emerald-400 font-bold';
+            } else {
+                apiKeyStatusText.textContent = '⚠️ ត្រូវការ Key (Required)';
+                apiKeyStatusText.className = 'text-[10px] text-amber-600 dark:text-amber-400 font-semibold';
+            }
+        }
+
+        if (headerApiStatus) {
+            headerApiStatus.textContent = hasKey ? 'API Key ✓' : 'Set API Key';
+        }
+    }
+
+    function openApiKeyModal() {
+        if (!modalApiKey) return;
+        const localKey = getGeminiApiKey();
+        if (modalGeminiKeyInput) modalGeminiKeyInput.value = localKey;
+        modalApiKey.classList.remove('hidden');
+    }
+
+    function closeApiKeyModal() {
+        if (!modalApiKey) return;
+        modalApiKey.classList.add('hidden');
+    }
+
+    async function checkGeminiStatus() {
+        try {
+            const res = await fetch('/api/gemini/status');
+            const data = await res.json();
+            if (data.status === 'success' && data.hasEnvKey) {
+                serverHasKey = true;
+            }
+        } catch (e) {
+            console.warn('Could not check gemini status:', e);
+        }
+        updateApiKeyUI();
+    }
+
+    // Gemini API Key Event Listeners
+    if (btnHeaderApiKey) btnHeaderApiKey.addEventListener('click', openApiKeyModal);
+    if (btnCloseApiModal) btnCloseApiModal.addEventListener('click', closeApiKeyModal);
+    if (btnModalApiCancel) btnModalApiCancel.addEventListener('click', closeApiKeyModal);
+    if (btnModalApiSave) {
+        btnModalApiSave.addEventListener('click', () => {
+            const val = modalGeminiKeyInput ? modalGeminiKeyInput.value : '';
+            setGeminiApiKey(val);
+            closeApiKeyModal();
+            alert('✓ Gemini API Key ត្រូវបានរក្សាទុកដោយជោគជ័យ!');
+        });
+    }
+    if (btnSaveKeyOcr) {
+        btnSaveKeyOcr.addEventListener('click', () => {
+            const val = geminiApiKeyInput ? geminiApiKeyInput.value : '';
+            if (val && !val.includes('••••')) {
+                setGeminiApiKey(val);
+                alert('✓ Gemini API Key ត្រូវបានរក្សាទុកដោយជោគជ័យ!');
+            } else if (!val) {
+                setGeminiApiKey('');
+                alert('បានលុប Gemini API Key');
+            }
+        });
+    }
+
+    // Initialize API Key status
+    checkGeminiStatus();
 
     // -------------------------------------------------------------
     // 1. Theme Configuration (Dark / Light Mode)
@@ -452,13 +560,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 day: 'numeric'
             });
             
+            const isDocx = (item.name || '').toLowerCase().endsWith('.docx');
+            const iconBg = isDocx ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-100 dark:border-blue-900/40 text-blue-600' : 'bg-red-50 dark:bg-red-950/20 border-red-100 dark:border-red-900/30 text-red-500';
+            const badgeType = isDocx ? 'DOCX' : 'PDF';
+            const badgeBg = isDocx ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300';
+            
             card.innerHTML = `
                 <div class="flex items-start gap-3">
-                    <div class="w-10 h-10 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 flex items-center justify-center text-red-500 shrink-0">
-                        <i data-lucide="file-text" class="w-6 h-6"></i>
+                    <div class="w-10 h-10 rounded-lg ${iconBg} border flex items-center justify-center shrink-0">
+                        <i data-lucide="${isDocx ? 'file-text' : 'file-code'}" class="w-6 h-6"></i>
                     </div>
                     <div class="overflow-hidden flex-1">
-                        <h4 class="font-bold text-xs text-slate-800 dark:text-slate-200 truncate" title="${item.name}">${item.name}</h4>
+                        <div class="flex items-center gap-1.5">
+                            <h4 class="font-bold text-xs text-slate-800 dark:text-slate-200 truncate flex-1" title="${item.name}">${item.name}</h4>
+                            <span class="text-[9px] font-bold px-1.5 py-0.5 rounded ${badgeBg}">${badgeType}</span>
+                        </div>
                         <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1">${item.size} • ${dateStr}</p>
                     </div>
                 </div>
@@ -527,8 +643,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnAiReview) {
             btnAiReview.disabled = (ocrResults.length === 0);
         }
-        if (btnExportPdf) {
-            btnExportPdf.disabled = (ocrResults.length === 0);
+        if (btnApplyKhmerPdf) {
+            btnApplyKhmerPdf.disabled = (!currentPdfBlob || ocrResults.length === 0);
+        }
+        if (btnDownloadDocx) {
+            btnDownloadDocx.disabled = false;
         }
     }
 
@@ -544,11 +663,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnDownload) {
             btnDownload.disabled = true;
         }
+        if (btnDownloadDocx) {
+            btnDownloadDocx.disabled = true;
+        }
         if (btnAiReview) {
             btnAiReview.disabled = true;
         }
-        if (btnExportPdf) {
-            btnExportPdf.disabled = true;
+        if (btnApplyKhmerPdf) {
+            btnApplyKhmerPdf.disabled = true;
         }
 
         // Disable scan UI
@@ -582,6 +704,15 @@ document.addEventListener('DOMContentLoaded', () => {
         ocrStatusText.textContent = 'កំពុងចាប់ផ្តើមស្កែនឯកសារ PDF ទាំងមូល (Starting direct PDF OCR)...';
         btnScan.disabled = true;
         
+        const localKey = getGeminiApiKey();
+        if (!localKey && !serverHasKey) {
+            openApiKeyModal();
+            btnScan.disabled = false;
+            ocrProgressContainer.classList.add('hidden');
+            alert('សូមបញ្ចូល Google Gemini API Key ជាមុនសិន ដើម្បីស្កែនអត្ថបទ។ (Please enter Gemini API Key)');
+            return;
+        }
+
         try {
             const lang = ocrLangSelect ? ocrLangSelect.value : 'auto';
             const formData = new FormData();
@@ -594,8 +725,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ocrProgressPercent.textContent = '40%';
             ocrStatusText.textContent = 'កំពុងដំណើរការ OCR លើទំព័រ PDF ទាំងអស់...';
 
+            const headers = {};
+            if (localKey) headers['x-gemini-api-key'] = localKey;
+
             const response = await fetch('/api/scan-ocr-pdf', {
                 method: 'POST',
+                headers: headers,
                 body: formData
             });
             
@@ -639,31 +774,547 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function renderPdfViewport(pdfBlob) {
-        if (activePdfObjectUrl) {
-            URL.revokeObjectURL(activePdfObjectUrl);
+    // -------------------------------------------------------------
+    // Word Document / Manga Live Editor State & Controls
+    // -------------------------------------------------------------
+    let currentDocPages = [];
+    let currentDocPageIndex = 0;
+    let docZoomLevel = 100;
+    let isDocFitWidth = true;
+
+    // Word Editor Ribbon State
+    let editorCurrentShape = "rounded";
+    let editorCurrentFont = "'Khmer OS Content', sans-serif";
+    let editorCurrentSize = "18";
+    let editorIsBold = false;
+    let editorCurrentAlign = "center";
+    let editorCurrentColor = "#0f172a";
+    let editorHasBubbleBg = true;
+    let selectedBubbleItem = null;
+
+    const btnZoomIn = document.getElementById('zoom-in');
+    const btnZoomOut = document.getElementById('zoom-out');
+    const btnZoomFit = document.getElementById('zoom-fit');
+    const zoomValText = document.getElementById('zoom-val');
+    const btnPrevPage = document.getElementById('prev-page');
+    const btnNextPage = document.getElementById('next-page');
+    const currentPageNumSpan = document.getElementById('current-page-num');
+    const totalPagesNumSpan = document.getElementById('total-pages-num');
+
+    const editorShapeSelect = document.getElementById('editor-shape-select');
+    const editorFontFamily = document.getElementById('editor-font-family');
+    const editorFontSize = document.getElementById('editor-font-size');
+    const editorBtnBold = document.getElementById('editor-btn-bold');
+    const editorTextAlign = document.getElementById('editor-text-align');
+    const editorTextColor = document.getElementById('editor-text-color');
+    const editorBtnBubbleBg = document.getElementById('editor-btn-bubble-bg');
+    const editorBtnAddText = document.getElementById('editor-btn-add-text');
+
+    function updateWordViewerControls() {
+        const total = currentDocPages.length;
+        if (total === 0) {
+            if (currentPageNumSpan) currentPageNumSpan.textContent = '1';
+            if (totalPagesNumSpan) totalPagesNumSpan.textContent = '1';
+            if (btnPrevPage) btnPrevPage.disabled = true;
+            if (btnNextPage) btnNextPage.disabled = true;
+            if (zoomValText) zoomValText.textContent = '100%';
+            return;
         }
-        
+
+        if (currentPageNumSpan) currentPageNumSpan.textContent = (currentDocPageIndex + 1);
+        if (totalPagesNumSpan) totalPagesNumSpan.textContent = total;
+        if (btnPrevPage) btnPrevPage.disabled = (currentDocPageIndex <= 0);
+        if (btnNextPage) btnNextPage.disabled = (currentDocPageIndex >= total - 1);
+        if (zoomValText) zoomValText.textContent = isDocFitWidth ? 'Fit' : `${docZoomLevel}%`;
+
+        // Update OCR page selector to sync with current viewed page
+        if (ocrPageSelect) {
+            const curOpt = ocrPageSelect.querySelector('option[value="current"]');
+            if (curOpt) curOpt.textContent = `ទំព័របច្ចុប្បន្ន (${currentDocPageIndex + 1})`;
+        }
+    }
+
+    function applyShapeStyles(bubble, shape, hasBg) {
+        if (shape === 'oval') {
+            bubble.style.borderRadius = "50% / 50%";
+            bubble.style.padding = "14px 18px";
+        } else if (shape === 'rect') {
+            bubble.style.borderRadius = "4px";
+            bubble.style.padding = "8px 10px";
+        } else if (shape === 'cloud') {
+            bubble.style.borderRadius = "24px 24px 20px 20px";
+            bubble.style.padding = "12px 16px";
+        } else if (shape === 'transparent') {
+            bubble.style.borderRadius = "6px";
+            bubble.style.padding = "6px 8px";
+            bubble.style.backgroundColor = "transparent";
+            bubble.style.borderColor = "transparent";
+            bubble.style.boxShadow = "none";
+            return;
+        } else {
+            // Default: rounded
+            bubble.style.borderRadius = "18px";
+            bubble.style.padding = "8px 14px";
+        }
+
+        if (hasBg) {
+            bubble.style.backgroundColor = "rgba(255, 255, 255, 0.96)";
+            bubble.style.borderColor = "rgba(59, 130, 246, 0.6)";
+            bubble.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.12)";
+        } else {
+            bubble.style.backgroundColor = "rgba(255, 255, 255, 0.25)";
+            bubble.style.borderColor = "rgba(59, 130, 246, 0.8)";
+        }
+    }
+
+    function renderWordDocViewer() {
+        if (!pdfViewport) return;
         pdfViewport.innerHTML = '';
-        if (!pdfBlob) {
+
+        if (!currentDocPages || currentDocPages.length === 0) {
             pdfViewport.innerHTML = `
                 <div id="pdf-empty-preview" class="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-6 text-center">
-                    <i data-lucide="eye-off" class="w-12 h-12 mb-3 stroke-1 opacity-60"></i>
+                    <i data-lucide="edit" class="w-12 h-12 mb-3 stroke-1 opacity-60"></i>
                     <h3 class="text-xs font-semibold text-slate-700 dark:text-slate-300">មិនទាន់មានការជ្រើសរើស</h3>
-                    <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs">សូមជ្រើសរើសឯកសារ PDF ពីបញ្ជីខាងស្តាំ ឬ Upload ឯកសារ PDF ដើម្បីមើល Preview ទីនេះ</p>
+                    <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs">សូមជ្រើសរើសឯកសារ Word (.docx) ឬ Manga ពីបញ្ជីខាងស្តាំ ដើម្បីកែសម្រួលនៅទីនេះ</p>
                 </div>
             `;
+            updateWordViewerControls();
             lucide.createIcons();
             return;
         }
 
-        activePdfObjectUrl = URL.createObjectURL(pdfBlob);
-        
-        const iframe = document.createElement('iframe');
-        iframe.src = activePdfObjectUrl;
-        iframe.className = "w-full h-full border-0";
-        pdfViewport.appendChild(iframe);
+        const curPage = currentDocPages[currentDocPageIndex];
+        if (!curPage) return;
+
+        const container = document.createElement('div');
+        container.className = "w-full h-full overflow-auto flex items-start justify-center p-4 custom-scrollbar bg-slate-200/70 dark:bg-slate-950/80";
+
+        const sheet = document.createElement('div');
+        sheet.className = "word-page-sheet bg-white dark:bg-slate-900 shadow-2xl rounded-sm border border-slate-300/80 dark:border-slate-800 transition-all duration-200 relative flex items-center justify-center overflow-hidden my-auto select-none";
+        sheet.style.width = isDocFitWidth ? '100%' : `${docZoomLevel}%`;
+        sheet.style.maxWidth = isDocFitWidth ? '640px' : 'none';
+
+        const img = document.createElement('img');
+        img.src = curPage.dataUrl;
+        img.alt = `Page ${currentDocPageIndex + 1}`;
+        img.className = "w-full h-auto block select-none pointer-events-none";
+        sheet.appendChild(img);
+
+        // Overlay layer for interactive speech bubbles and text boxes
+        const overlay = document.createElement('div');
+        overlay.className = "word-editor-overlay absolute inset-0 w-full h-full pointer-events-auto";
+
+        const pageNum = currentDocPageIndex + 1;
+        const pageItems = ocrResults.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
+
+        pageItems.forEach((item, itemIdx) => {
+            const bubble = document.createElement('div');
+            bubble.className = "word-editor-bubble absolute border border-blue-400/80 hover:border-blue-500 transition-shadow group flex items-center justify-center cursor-move";
+            
+            // Positioning from box_2d or auto offset
+            let topPct = 15 + (itemIdx * 14);
+            let leftPct = 15;
+            let widthPct = 60;
+            let heightPct = 10;
+
+            if (item.box_2d && Array.isArray(item.box_2d) && item.box_2d.length === 4) {
+                const [ymin, xmin, ymax, xmax] = item.box_2d;
+                topPct = (ymin / 10);
+                leftPct = (xmin / 10);
+                widthPct = Math.max(15, (xmax - xmin) / 10);
+                heightPct = Math.max(6, (ymax - ymin) / 10);
+            }
+
+            bubble.style.top = `${Math.min(88, Math.max(1, topPct))}%`;
+            bubble.style.left = `${Math.min(85, Math.max(1, leftPct))}%`;
+            bubble.style.width = `${Math.min(96, widthPct)}%`;
+            bubble.style.minHeight = `${Math.min(90, heightPct)}%`;
+
+            const currentShape = item.shape || editorCurrentShape;
+            applyShapeStyles(bubble, currentShape, editorHasBubbleBg);
+
+            if (selectedBubbleItem === item) {
+                bubble.classList.add('ring-2', 'ring-blue-500');
+            }
+
+            // Top Drag Handle
+            const dragHandle = document.createElement('div');
+            dragHandle.className = "bubble-drag-handle absolute -top-2.5 -left-2.5 w-5 h-5 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-grab active:cursor-grabbing z-20";
+            dragHandle.innerHTML = `<i data-lucide="move" class="w-3 h-3"></i>`;
+
+            // Delete Bubble Button
+            const delBtn = document.createElement('div');
+            delBtn.className = "bubble-del-btn absolute -top-2.5 -right-2.5 w-5 h-5 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-pointer z-20";
+            delBtn.innerHTML = `✕`;
+            delBtn.title = "លុបប្រអប់អក្សរនេះ";
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const targetIdx = ocrResults.indexOf(item);
+                if (targetIdx > -1) {
+                    ocrResults.splice(targetIdx, 1);
+                    selectedBubbleItem = null;
+                    renderWordDocViewer();
+                    renderOcrTable();
+                }
+            });
+
+            // Resizing Handles (Bottom-Right, Bottom-Left, Right Edge, Bottom Edge)
+            const resizeSE = document.createElement('div');
+            resizeSE.className = "absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-se-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
+
+            const resizeSW = document.createElement('div');
+            resizeSW.className = "absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
+
+            const resizeE = document.createElement('div');
+            resizeE.className = "absolute top-1/2 -right-1.5 -translate-y-1/2 w-2.5 h-5 bg-blue-500 rounded-sm cursor-e-resize opacity-0 group-hover:opacity-100 transition z-20";
+
+            const resizeS = document.createElement('div');
+            resizeS.className = "absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-2.5 bg-blue-500 rounded-sm cursor-s-resize opacity-0 group-hover:opacity-100 transition z-20";
+
+            // Editable text inside shape
+            const textSpan = document.createElement('div');
+            textSpan.contentEditable = "true";
+            textSpan.className = "bubble-text-content w-full h-full outline-none select-text leading-relaxed flex items-center justify-center";
+            textSpan.style.textAlign = item.textAlign || editorCurrentAlign;
+            textSpan.style.fontFamily = item.fontFamily || editorCurrentFont;
+            textSpan.style.fontSize = `${item.fontSize || editorCurrentSize}px`;
+            textSpan.style.fontWeight = (item.isBold !== undefined ? item.isBold : editorIsBold) ? "bold" : "normal";
+            textSpan.style.color = item.color || editorCurrentColor;
+            textSpan.innerText = item.transText || item.khmer_translation || item.lineText || item.original_text || 'វាយអក្សរខ្មែរ...';
+
+            // Click selection
+            bubble.addEventListener('click', (e) => {
+                selectedBubbleItem = item;
+                if (item.shape && editorShapeSelect) editorShapeSelect.value = item.shape;
+                if (item.fontSize && editorFontSize) editorFontSize.value = item.fontSize;
+                if (item.fontFamily && editorFontFamily) editorFontFamily.value = item.fontFamily;
+                if (item.textAlign && editorTextAlign) editorTextAlign.value = item.textAlign;
+            });
+
+            // Real-time two-way synchronization: updating on text input
+            textSpan.addEventListener('input', () => {
+                item.transText = textSpan.innerText;
+                item.khmer_translation = textSpan.innerText;
+                renderOcrTable();
+            });
+
+            // Resizing mechanics (Corner SE & E / S handles)
+            const initResize = (e, dir) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const initialW = bubble.offsetWidth;
+                const initialH = bubble.offsetHeight;
+                const parentW = sheet.clientWidth;
+                const parentH = sheet.clientHeight;
+
+                const onResizeMove = (moveEvt) => {
+                    const dx = moveEvt.clientX - startX;
+                    const dy = moveEvt.clientY - startY;
+                    let newW = initialW;
+                    let newH = initialH;
+
+                    if (dir.includes('e')) newW = Math.max(50, initialW + dx);
+                    if (dir.includes('w')) newW = Math.max(50, initialW - dx);
+                    if (dir.includes('s')) newH = Math.max(30, initialH + dy);
+
+                    const newWPct = (newW / parentW) * 100;
+                    const newHPct = (newH / parentH) * 100;
+
+                    bubble.style.width = `${Math.min(95, newWPct)}%`;
+                    bubble.style.minHeight = `${Math.min(90, newHPct)}%`;
+
+                    const currentLeft = (bubble.offsetLeft / parentW) * 100;
+                    const currentTop = (bubble.offsetTop / parentH) * 100;
+
+                    if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
+                    item.box_2d[0] = Math.round(currentTop * 10);
+                    item.box_2d[1] = Math.round(currentLeft * 10);
+                    item.box_2d[2] = Math.round((currentTop + newHPct) * 10);
+                    item.box_2d[3] = Math.round((currentLeft + newWPct) * 10);
+                };
+
+                const onResizeUp = () => {
+                    document.removeEventListener('mousemove', onResizeMove);
+                    document.removeEventListener('mouseup', onResizeUp);
+                };
+
+                document.addEventListener('mousemove', onResizeMove);
+                document.addEventListener('mouseup', onResizeUp);
+            };
+
+            resizeSE.addEventListener('mousedown', (e) => initResize(e, 'se'));
+            resizeSW.addEventListener('mousedown', (e) => initResize(e, 'sw'));
+            resizeE.addEventListener('mousedown', (e) => initResize(e, 'e'));
+            resizeS.addEventListener('mousedown', (e) => initResize(e, 's'));
+
+            // Dragging mechanics
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            const onMouseDown = (e) => {
+                if (e.target === textSpan && textSpan.isContentEditable && document.activeElement === textSpan) return;
+                if (e.target === delBtn || e.target === resizeSE || e.target === resizeSW || e.target === resizeE || e.target === resizeS) return;
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                initialLeft = bubble.offsetLeft;
+                initialTop = bubble.offsetTop;
+                bubble.style.zIndex = "100";
+                selectedBubbleItem = item;
+                e.preventDefault();
+
+                const onMouseMove = (moveEvt) => {
+                    if (!isDragging) return;
+                    const dx = moveEvt.clientX - startX;
+                    const dy = moveEvt.clientY - startY;
+                    const newLeft = initialLeft + dx;
+                    const newTop = initialTop + dy;
+                    
+                    const parentW = sheet.clientWidth;
+                    const parentH = sheet.clientHeight;
+
+                    const leftPctNow = (newLeft / parentW) * 100;
+                    const topPctNow = (newTop / parentH) * 100;
+                    const widthPctNow = (bubble.offsetWidth / parentW) * 100;
+                    const heightPctNow = (bubble.offsetHeight / parentH) * 100;
+
+                    bubble.style.left = `${Math.min(88, Math.max(0, leftPctNow))}%`;
+                    bubble.style.top = `${Math.min(92, Math.max(0, topPctNow))}%`;
+
+                    // Update box_2d in data model
+                    if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
+                    item.box_2d[0] = Math.round(topPctNow * 10);
+                    item.box_2d[1] = Math.round(leftPctNow * 10);
+                    item.box_2d[2] = Math.round((topPctNow + heightPctNow) * 10);
+                    item.box_2d[3] = Math.round((leftPctNow + widthPctNow) * 10);
+                };
+
+                const onMouseUp = () => {
+                    isDragging = false;
+                    bubble.style.zIndex = "10";
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                };
+
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            };
+
+            bubble.addEventListener('mousedown', onMouseDown);
+
+            bubble.appendChild(dragHandle);
+            bubble.appendChild(delBtn);
+            bubble.appendChild(resizeSE);
+            bubble.appendChild(resizeSW);
+            bubble.appendChild(resizeE);
+            bubble.appendChild(resizeS);
+            bubble.appendChild(textSpan);
+            overlay.appendChild(bubble);
+        });
+
+        sheet.appendChild(overlay);
+        container.appendChild(sheet);
+        pdfViewport.appendChild(container);
+
+        updateWordViewerControls();
+        lucide.createIcons();
     }
+
+    // Ribbon Controls Event Listeners
+    if (editorShapeSelect) {
+        editorShapeSelect.addEventListener('change', () => {
+            editorCurrentShape = editorShapeSelect.value;
+            if (selectedBubbleItem) {
+                selectedBubbleItem.shape = editorCurrentShape;
+            }
+            renderWordDocViewer();
+        });
+    }
+
+    if (editorFontFamily) {
+        editorFontFamily.addEventListener('change', () => {
+            editorCurrentFont = editorFontFamily.value;
+            if (selectedBubbleItem) {
+                selectedBubbleItem.fontFamily = editorCurrentFont;
+            }
+            renderWordDocViewer();
+        });
+    }
+
+    if (editorFontSize) {
+        editorFontSize.addEventListener('change', () => {
+            editorCurrentSize = editorFontSize.value;
+            if (selectedBubbleItem) {
+                selectedBubbleItem.fontSize = editorCurrentSize;
+            }
+            renderWordDocViewer();
+        });
+    }
+
+    if (editorTextAlign) {
+        editorTextAlign.addEventListener('change', () => {
+            editorCurrentAlign = editorTextAlign.value;
+            if (selectedBubbleItem) {
+                selectedBubbleItem.textAlign = editorCurrentAlign;
+            }
+            renderWordDocViewer();
+        });
+    }
+
+    if (editorBtnBold) {
+        editorBtnBold.addEventListener('click', () => {
+            editorIsBold = !editorIsBold;
+            editorBtnBold.classList.toggle('bg-blue-600', editorIsBold);
+            editorBtnBold.classList.toggle('text-white', editorIsBold);
+            if (selectedBubbleItem) {
+                selectedBubbleItem.isBold = editorIsBold;
+            }
+            renderWordDocViewer();
+        });
+    }
+
+    if (editorTextColor) {
+        editorTextColor.addEventListener('input', () => {
+            editorCurrentColor = editorTextColor.value;
+            if (selectedBubbleItem) {
+                selectedBubbleItem.color = editorCurrentColor;
+            }
+            renderWordDocViewer();
+        });
+    }
+
+    if (editorBtnBubbleBg) {
+        editorBtnBubbleBg.addEventListener('click', () => {
+            editorHasBubbleBg = !editorHasBubbleBg;
+            editorBtnBubbleBg.classList.toggle('bg-blue-50', editorHasBubbleBg);
+            editorBtnBubbleBg.classList.toggle('border-blue-400', editorHasBubbleBg);
+            renderWordDocViewer();
+        });
+    }
+
+    if (editorBtnAddText) {
+        editorBtnAddText.addEventListener('click', () => {
+            if (currentDocPages.length === 0) {
+                alert('⚠️ សូមជ្រើសរើសឯកសារ Word ឬ Manga មួយជាមុនសិន!');
+                return;
+            }
+            const pageNum = currentDocPageIndex + 1;
+            const newItem = {
+                id: `T-${pageNum}-${Date.now().toString().slice(-4)}`,
+                pageNum: pageNum,
+                lineText: 'New Dialogue',
+                transText: 'វាយអត្ថបទខ្មែរនៅទីនេះ...',
+                shape: editorCurrentShape,
+                fontSize: editorCurrentSize,
+                fontFamily: editorCurrentFont,
+                textAlign: editorCurrentAlign,
+                isBold: editorIsBold,
+                color: editorCurrentColor,
+                box_2d: [350, 200, 480, 800]
+            };
+            ocrResults.push(newItem);
+            selectedBubbleItem = newItem;
+            renderWordDocViewer();
+            renderOcrTable();
+        });
+    }
+
+    async function renderPdfViewport(pdfBlob) {
+        if (!pdfBlob) {
+            currentDocPages = [];
+            currentDocPageIndex = 0;
+            renderWordDocViewer();
+            return;
+        }
+
+        pdfViewport.innerHTML = `
+            <div class="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-400 gap-3">
+                <i data-lucide="loader" class="w-8 h-8 animate-spin text-brand-500"></i>
+                <p class="text-xs font-bold text-slate-600 dark:text-slate-400">កំពុងផ្ទុកទំព័រឯកសារ Word Editor...</p>
+            </div>
+        `;
+        lucide.createIcons();
+
+        try {
+            const formData = new FormData();
+            formData.append('file', pdfBlob, 'document.pdf');
+
+            const res = await fetch('/api/upload-pdf', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+            if (data.status === 'success' && data.pages && data.pages.length > 0) {
+                currentDocPages = data.pages;
+                currentDocPageIndex = 0;
+                renderWordDocViewer();
+            } else {
+                throw new Error(data.message || 'Failed to render pages');
+            }
+        } catch (err) {
+            console.error('Error rendering document viewer pages:', err);
+            renderWordDocViewer();
+        }
+    }
+
+    // Zoom & Page Navigation Listeners
+    if (btnPrevPage) {
+        btnPrevPage.addEventListener('click', () => {
+            if (currentDocPageIndex > 0) {
+                currentDocPageIndex--;
+                renderWordDocViewer();
+            }
+        });
+    }
+
+    if (btnNextPage) {
+        btnNextPage.addEventListener('click', () => {
+            if (currentDocPageIndex < currentDocPages.length - 1) {
+                currentDocPageIndex++;
+                renderWordDocViewer();
+            }
+        });
+    }
+
+    if (btnZoomIn) {
+        btnZoomIn.addEventListener('click', () => {
+            isDocFitWidth = false;
+            docZoomLevel = Math.min(250, docZoomLevel + 25);
+            renderWordDocViewer();
+        });
+    }
+
+    if (btnZoomOut) {
+        btnZoomOut.addEventListener('click', () => {
+            isDocFitWidth = false;
+            docZoomLevel = Math.max(50, docZoomLevel - 25);
+            renderWordDocViewer();
+        });
+    }
+
+    if (btnZoomFit) {
+        btnZoomFit.addEventListener('click', () => {
+            isDocFitWidth = true;
+            docZoomLevel = 100;
+            renderWordDocViewer();
+        });
+    }
+
+    // Keyboard navigation (Left / Right arrows to switch pages)
+    document.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+        if (e.key === 'ArrowLeft' && currentDocPageIndex > 0) {
+            currentDocPageIndex--;
+            renderWordDocViewer();
+        } else if (e.key === 'ArrowRight' && currentDocPageIndex < currentDocPages.length - 1) {
+            currentDocPageIndex++;
+            renderWordDocViewer();
+        }
+    });
 
     clearAllBtn.addEventListener('click', async () => {
         if (confirm('តើអ្នកពិតជាចង់លុបឯកសារ PDF ទាំងអស់ចេញពីបណ្ណាល័យមែនទេ?')) {
@@ -750,8 +1401,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Handle Start Scan Button click
-    btnScan.addEventListener('click', () => {
-        if (!currentPdfBlob) return;
+    btnScan.addEventListener('click', async () => {
+        if (!currentPdfBlob) {
+            alert('⚠️ សូមជ្រើសរើសឯកសារ PDF មួយពី "បណ្ណាល័យ PDF (PDF Library)" ជាមុនសិន មុននឹងចាប់ផ្តើមស្កែន!\n(Please select a PDF file from the PDF Library first.)');
+            switchTab('organize');
+            return;
+        }
 
         // Confirm overwrite if we already have OCR results
         if (ocrResults.length > 0) {
@@ -764,11 +1419,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const lang = ocrLangSelect.value;
         const targetPageVal = ocrPageSelect.value;
 
+        const localKey = getGeminiApiKey();
+        if (!localKey && !serverHasKey) {
+            // Re-verify server status once more before blocking
+            await checkGeminiStatus();
+            if (!serverHasKey) {
+                openApiKeyModal();
+                alert('សូមបញ្ចូល Google Gemini API Key ជាមុនសិន ដើម្បីស្កែនអត្ថបទ និងបកប្រែ។ (Please enter your Gemini API Key first)');
+                return;
+            }
+        }
+
         // Show progress bar container
         ocrProgressContainer.classList.remove('hidden');
-        ocrProgressBar.style.width = '0%';
-        ocrProgressPercent.textContent = '0%';
-        ocrStatusText.textContent = 'កំពុងប្រើ Gemini AI ស្កែនអត្ថបទ និងបកប្រែជាភាសាខ្មែរ...';
+        ocrProgressBar.style.width = '5%';
+        ocrProgressPercent.textContent = '5%';
+        ocrStatusText.textContent = 'កំពុងចាប់ផ្តើមស្កែន និងបកប្រែជាភាសាខ្មែរ...';
         btnScan.disabled = true;
 
         let pagesParam = 'all';
@@ -789,7 +1455,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ocrProgressPercent.textContent = '0%';
         ocrStatusText.textContent = `កំពុងចាប់ផ្តើមស្កែន និងវិភាគទំព័រ PDF...`;
 
-        const totalPagesToScan = pagesParam === 'all' ? (activePdfItem?.pages?.length || 1) : pagesParam.split(',').length;
+        const totalPagesToScan = pagesParam === 'all' ? (activePdfFile?.pages?.length || 1) : pagesParam.split(',').length;
         const estimatedSeconds = Math.max(3, totalPagesToScan * 2);
 
         const startTime = Date.now();
@@ -821,8 +1487,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, 120);
 
+        const headers = {};
+        if (localKey) headers['x-gemini-api-key'] = localKey;
+
         fetch('/api/scan-ocr-pdf', {
             method: 'POST',
+            headers: headers,
             body: formData
         })
         .then(async res => {
@@ -869,7 +1539,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 logActivityEntry({
                     type: 'ocr',
-                    title: `ស្កែនអត្ថបទ OCR៖ ${activePdfItem ? activePdfItem.name : 'PDF Document'}`,
+                    title: `ស្កែនអត្ថបទ OCR៖ ${activePdfFile ? activePdfFile.name : 'PDF Document'}`,
                     subtitle: `បានស្រង់ & បកប្រែ ${ocrResults.length} ឃ្លាសន្ទនា`,
                     details: `Gemini Vision AI Engine`
                 });
@@ -1102,11 +1772,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         saveOcrResults();
-        if (btnExportPdf) {
-            btnExportPdf.disabled = (ocrResults.length === 0);
-        }
         if (btnAiReview) {
             btnAiReview.disabled = (ocrResults.length === 0);
+        }
+        if (btnApplyKhmerPdf) {
+            btnApplyKhmerPdf.disabled = (!currentPdfBlob || ocrResults.length === 0);
         }
         lucide.createIcons();
     }
@@ -1279,6 +1949,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const proceed = confirm("តើអ្នកពិតជាចង់ផ្ទៀងផ្ទាត់ និងកែសម្រួលអត្ថបទនៅលើទំព័រនេះជាមួយ Gemini AI មែនទេ?\n(Do you want to review and correct the text on this page with Gemini AI?)");
         if (!proceed) return;
 
+        const localKey = getGeminiApiKey();
+        if (!localKey && !serverHasKey) {
+            openApiKeyModal();
+            alert('សូមបញ្ចូល Google Gemini API Key ជាមុនសិន ដើម្បីប្រើ AI Review។ (Please enter your Gemini API Key)');
+            return;
+        }
+
         // Show progress container
         ocrProgressContainer.classList.remove('hidden');
         ocrProgressBar.style.width = '20%';
@@ -1296,8 +1973,12 @@ document.addEventListener('DOMContentLoaded', () => {
         ocrProgressPercent.textContent = '60%';
         ocrStatusText.textContent = 'Gemini AI កំពុងវិភាគរូបភាព និងកែតម្រូវអត្ថបទ...';
 
+        const headers = {};
+        if (localKey) headers['x-gemini-api-key'] = localKey;
+
         fetch('/api/ai-review', {
             method: 'POST',
+            headers: headers,
             body: formData
         })
         .then(res => {
@@ -1375,88 +2056,181 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    let currentTranslatedPdfBlob = null;
-
-    if (btnExportPdf) {
-        btnExportPdf.addEventListener('click', () => {
-            if (!currentPdfBlob) {
-                alert('សូមជ្រើសរើស ឬស្កែន PDF ជាមុនសិន!');
+    // Handle Apply Khmer to Word (.docx) Button click
+    if (btnApplyKhmerPdf) {
+        btnApplyKhmerPdf.addEventListener('click', async () => {
+            if (!currentPdfBlob && !activePdfFile && (!images || images.length === 0)) {
+                alert('⚠️ សូមជ្រើសរើសឯកសារ Manga មួយជាមុនសិន!');
                 return;
             }
             if (!ocrResults || ocrResults.length === 0) {
-                alert('គ្មានអត្ថបទបកប្រែនៅក្នុងតារាង ដើម្បីបង្កើត PDF ឡើយ!');
+                alert('⚠️ មិនទាន់មានអត្ថបទបកប្រែនៅក្នុងតារាងនៅឡើយទេ។ សូមចុច "Start Scan Text & Translate" ជាមុនសិន!');
                 return;
             }
 
+            // Show progress
             ocrProgressContainer.classList.remove('hidden');
             ocrProgressBar.style.width = '20%';
             ocrProgressPercent.textContent = '20%';
-            ocrStatusText.textContent = 'កំពុងរៀបចំ និងសរសេរអក្សរខ្មែរចូលក្នុង PDF...';
-            btnExportPdf.disabled = true;
+            ocrStatusText.textContent = 'កំពុងចងក្រងរូបភាព និងអត្ថបទខ្មែរចូលក្នុងឯកសារ Word (.docx)...';
+            btnApplyKhmerPdf.disabled = true;
+            if (btnScan) btnScan.disabled = true;
 
             const formData = new FormData();
-            formData.append('file', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+            if (images && images.length > 0) {
+                images.forEach((img, idx) => {
+                    formData.append('images', img.file, img.file.name || `page_${idx + 1}.png`);
+                });
+            } else if (currentPdfBlob) {
+                formData.append('images', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+            }
             formData.append('ocr_items', JSON.stringify(ocrResults));
+            const baseName = (activePdfFile && activePdfFile.name) ? activePdfFile.name.replace(/\.[^/.]+$/, '') : 'manga_khmer';
+            formData.append('title', `${baseName} - Khmer Translated`);
 
-            ocrProgressBar.style.width = '60%';
-            ocrProgressPercent.textContent = '60%';
+            // Smooth progress animation
+            let currentP = 20;
+            const timer = setInterval(() => {
+                if (currentP < 90) {
+                    currentP += 8;
+                    ocrProgressBar.style.width = `${currentP}%`;
+                    ocrProgressPercent.textContent = `${currentP}%`;
+                    if (currentP > 40 && currentP < 70) {
+                        ocrStatusText.textContent = 'កំពុងកំណត់រចនាប័ទ្មពុម្ពអក្សរខ្មែរ (Khmer Font & Tables)...';
+                    } else if (currentP >= 70) {
+                        ocrStatusText.textContent = 'កំពុងបញ្ចប់ឯកសារ Microsoft Word (.docx)...';
+                    }
+                }
+            }, 100);
 
-            fetch('/api/export-translated-pdf', {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => {
+            try {
+                const res = await fetch('/api/generate-docx', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                clearInterval(timer);
+
                 if (!res.ok) {
-                    throw new Error('មិនអាចបង្កើត PDF បកប្រែបានឡើយ');
+                    let errMsg = `Server error (${res.status})`;
+                    try {
+                        const errData = await res.json();
+                        if (errData && errData.message) errMsg = errData.message;
+                    } catch (e) {}
+                    throw new Error(errMsg);
                 }
-                return res.blob();
-            })
-            .then(blob => {
-                currentTranslatedPdfBlob = blob;
 
-                // 1. Render the translated Khmer PDF directly into the main PDF Preview Viewport
-                renderPdfViewport(blob);
-
-                // 2. Enable the Download PDF button in active-pdf-info bar
-                if (btnDownload) {
-                    btnDownload.disabled = false;
-                }
+                const docxBlob = await res.blob();
+                const docxFileName = `${baseName}_Khmer_Translated.docx`;
+                const url = URL.createObjectURL(docxBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = docxFileName;
+                document.body.appendChild(a);
+                a.click();
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
 
                 ocrProgressBar.style.width = '100%';
                 ocrProgressPercent.textContent = '100%';
-                ocrStatusText.textContent = 'បង្កើត PDF បកប្រែជោគជ័យ!';
+                ocrStatusText.textContent = '✨ បានបង្កើត និងទាញយកឯកសារ Word (.docx) ភាសាខ្មែរជោគជ័យ!';
 
                 logActivityEntry({
-                    type: 'pdf',
-                    title: `Export Khmer Manga PDF៖ ${activePdfItem ? activePdfItem.name : 'Manga PDF'}`,
-                    subtitle: `បានបង្កប់ពុម្ពអក្សរខ្មែរក្នុង Speech Bubbles`,
-                    details: `កម្រិតគុណភាពខ្ពស់ HD`
+                    type: 'doc',
+                    title: `បញ្ចូលអក្សរខ្មែរ៖ ${docxFileName}`,
+                    subtitle: `បានបង្កប់ ${ocrResults.length} ឃ្លាជាភាសាខ្មែរ (Word Document)`,
+                    details: `Microsoft Word (.docx)`
                 });
 
                 setTimeout(() => {
                     ocrProgressContainer.classList.add('hidden');
-                    btnExportPdf.disabled = false;
-                    alert('🎉 PDF បកប្រែជាភាសាខ្មែរត្រូវបានរៀបចំរៀបរយ!\nលោកអ្នកអាចពិនិត្យមើលទំព័រលើ PDF Preview (ផ្ទាំងខាងឆ្វេង) និងចុចប៊ូតុង "ទាញយក PDF" បាន។');
+                    btnApplyKhmerPdf.disabled = false;
+                    if (btnScan) btnScan.disabled = false;
+                    alert(`🎉 បានបង្កើតឯកសារ Word (.docx) ភាសាខ្មែរដោយជោគជ័យ!\n\n📄 ឈ្មោះ File៖ ${docxFileName}\n\nអ្នកអាចបើកកែសម្រួលអត្ថបទ និងរូបភាពលើ Microsoft Word ឬ WPS Office បានភ្លាមៗ។`);
                 }, 600);
-            })
-            .catch(err => {
+
+            } catch (err) {
+                clearInterval(timer);
                 ocrProgressContainer.classList.add('hidden');
-                btnExportPdf.disabled = false;
-                alert('កំហុសក្នុងការបង្កើត PDF: ' + err.message);
-            });
+                btnApplyKhmerPdf.disabled = false;
+                if (btnScan) btnScan.disabled = false;
+                console.error(err);
+                alert('កំហុសក្នុងការបង្កើតឯកសារ Word ភាសាខ្មែរ៖\n' + err.message);
+            }
         });
     }
 
-    // Download button handler (Handles downloading either translated PDF or active PDF)
+    // Download button handler (Handles downloading active PDF)
     if (btnDownload) {
         btnDownload.addEventListener('click', () => {
-            const blobToDownload = currentTranslatedPdfBlob || currentPdfBlob;
-            if (!blobToDownload) {
+            if (!currentPdfBlob && !activePdfFile) {
                 alert('គ្មានឯកសារ PDF សម្រាប់ទាញយកឡើយ');
                 return;
             }
-            const name = currentTranslatedPdfBlob ? 'manga_khmer_translated.pdf' : (activePdfFile ? activePdfFile.name : 'document.pdf');
+            const blobToDownload = (activePdfFile && activePdfFile.blob) ? activePdfFile.blob : currentPdfBlob;
+            const name = (activePdfFile && activePdfFile.name) ? activePdfFile.name : 'document.pdf';
             downloadPdfFile(blobToDownload, name);
+        });
+    }
+
+    // Download Word (.docx) button handler
+    if (btnDownloadDocx) {
+        btnDownloadDocx.addEventListener('click', async () => {
+            if (!currentPdfBlob && !activePdfFile && (!images || images.length === 0)) {
+                alert('គ្មានឯកសារសម្រាប់ទាញយកជា Word ឡើយ');
+                return;
+            }
+
+            const origHtml = btnDownloadDocx.innerHTML;
+            btnDownloadDocx.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងបង្កើត Word...`;
+            btnDownloadDocx.disabled = true;
+
+            try {
+                const formData = new FormData();
+                if (images && images.length > 0) {
+                    images.forEach((img, idx) => {
+                        formData.append('images', img.file, img.file.name || `page_${idx + 1}.png`);
+                    });
+                } else if (currentPdfBlob) {
+                    formData.append('images', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+                }
+                formData.append('ocr_items', JSON.stringify(ocrResults || []));
+                const baseName = (activePdfFile && activePdfFile.name) ? activePdfFile.name.replace(/\.[^/.]+$/, '') : 'document';
+                formData.append('title', baseName);
+
+                const res = await fetch('/api/generate-docx', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned status ${res.status}`);
+                }
+
+                const docxBlob = await res.blob();
+                const url = URL.createObjectURL(docxBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${baseName}.docx`;
+                document.body.appendChild(a);
+                a.click();
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                logActivityEntry({
+                    type: 'doc',
+                    title: `ទាញយកជា Word៖ ${baseName}.docx`,
+                    subtitle: `ឯកសារ Microsoft Word (.docx)`,
+                    details: `ទំហំសមាមាត្ររូបភាព 1:1`
+                });
+            } catch (err) {
+                console.error('Error downloading Word document:', err);
+                alert('មានបញ្ហាក្នុងការទាញយកជា Word៖\n' + err.message);
+            } finally {
+                btnDownloadDocx.innerHTML = origHtml;
+                btnDownloadDocx.disabled = false;
+                lucide.createIcons();
+            }
         });
     }
 
@@ -1713,6 +2487,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const mangaDownloadBar = document.getElementById('manga-download-bar');
     const mangaDownloadDetails = document.getElementById('manga-download-details');
     
+    const btnMangaDownloadDocx = document.getElementById('btn-manga-download-docx');
     const btnMangaDownloadZip = document.getElementById('btn-manga-download-zip');
     const btnMangaImportPdf = document.getElementById('btn-manga-import-pdf');
 
@@ -1865,6 +2640,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Reset Progress bar and buttons
                 if (mangaDownloadProgressContainer) mangaDownloadProgressContainer.classList.add('hidden');
+                if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = !selectedChaptersList.size;
                 if (btnMangaDownloadZip) btnMangaDownloadZip.disabled = !selectedChaptersList.size;
                 if (btnMangaImportPdf) btnMangaImportPdf.disabled = !selectedChaptersList.size;
 
@@ -2003,9 +2779,11 @@ document.addEventListener('DOMContentLoaded', () => {
         mangaSelectedCount.textContent = `${count} Chapters`;
         
         if (count > 0) {
+            if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = false;
             btnMangaDownloadZip.disabled = false;
             btnMangaImportPdf.disabled = false;
         } else {
+            if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = true;
             btnMangaDownloadZip.disabled = true;
             btnMangaImportPdf.disabled = true;
         }
@@ -2166,8 +2944,19 @@ document.addEventListener('DOMContentLoaded', () => {
         lucide.createIcons();
 
         btnMangaFetch.disabled = false;
+        if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = false;
         btnMangaDownloadZip.disabled = false;
         btnMangaImportPdf.disabled = false;
+    }
+
+    // DOCX Compiler trigger
+    if (btnMangaDownloadDocx) {
+        btnMangaDownloadDocx.addEventListener('click', async () => {
+            if (downloadedPagesMap.size === 0) {
+                await startChaptersDownloadSequence();
+            }
+            await downloadDocxFile();
+        });
     }
 
     // ZIP Compiler trigger
@@ -2255,6 +3044,137 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             btnMangaDownloadZip.innerHTML = originalBtnHTML;
             btnMangaDownloadZip.disabled = false;
+            lucide.createIcons();
+        }
+    }
+
+    async function downloadDocxFile() {
+        if (!btnMangaDownloadDocx) return;
+        mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងរៀបចំឯកសារ Word (.docx)...`;
+        lucide.createIcons();
+
+        // Sort downloaded chapters strictly in ascending numerical order
+        const chapterEntries = Array.from(downloadedPagesMap.entries()).map(([chUuid, pages]) => {
+            const chCard = document.querySelector(`.chapter-card[data-id="${chUuid}"]`);
+            const chNum = chCard ? parseFloat(chCard.dataset.chapter) : NaN;
+            const chStr = chCard ? (chCard.dataset.chapter || 'ch') : 'ch';
+            return { chUuid, pages, chNum, chStr };
+        });
+
+        chapterEntries.sort((a, b) => {
+            if (!isNaN(a.chNum) && !isNaN(b.chNum)) return a.chNum - b.chNum;
+            if (!isNaN(a.chNum)) return -1;
+            if (!isNaN(b.chNum)) return 1;
+            return a.chStr.localeCompare(b.chStr, undefined, { numeric: true });
+        });
+
+        const allImagesData = [];
+        chapterEntries.forEach(({ pages, chStr }) => {
+            pages.forEach((p, idx) => {
+                allImagesData.push({
+                    name: `${currentMangaData.title}_Ch_${chStr}_Page_${idx + 1}.${p.name.split('.').pop()}`,
+                    dataUrl: p.dataUrl
+                });
+            });
+        });
+
+        if (allImagesData.length === 0) {
+            alert('គ្មានរូបភាពសម្រាប់ទាញយកឡើយ!');
+            return;
+        }
+
+        const originalBtnHTML = btnMangaDownloadDocx.innerHTML;
+        btnMangaDownloadDocx.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Creating DOCX...`;
+        btnMangaDownloadDocx.disabled = true;
+
+        try {
+            const formData = new FormData();
+            formData.append('files', JSON.stringify(allImagesData));
+            formData.append('manga_title', currentMangaData.title);
+
+            const response = await fetch('/api/manga/generate-docx', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server returned code ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const docxName = `${currentMangaData.title.replace(/\s+/g, '_')}_chapters.docx`;
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = docxName;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            // Also import images to Manga Creator workspace
+            mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងបញ្ជូនទៅកាន់ Manga Creator...`;
+            lucide.createIcons();
+
+            // Compile into PDF representation for Manga Creator preview & OCR
+            const pdfFormData = new FormData();
+            const metadataList = [];
+            
+            for (let i = 0; i < allImagesData.length; i++) {
+                const imgData = allImagesData[i];
+                const resImg = await fetch(imgData.dataUrl);
+                const imgBlob = await resImg.blob();
+                pdfFormData.append('images', imgBlob, imgData.name);
+                metadataList.push({ filename: imgData.name, rotation: 0 });
+            }
+            
+            pdfFormData.append('metadata', JSON.stringify(metadataList));
+            pdfFormData.append('page_size', 'original');
+            pdfFormData.append('quality', '0.92');
+
+            const pdfGenRes = await fetch('/api/generate-pdf', {
+                method: 'POST',
+                body: pdfFormData
+            });
+
+            let createdDocId = null;
+            if (pdfGenRes.ok) {
+                const pdfBlob = await pdfGenRes.blob();
+                const docTitle = chapterEntries.length === 1 
+                    ? `${currentMangaData.title} - Ch ${chapterEntries[0].chStr}.docx`
+                    : `${currentMangaData.title} - ${chapterEntries.length} Chapters.docx`;
+                createdDocId = await savePdfToDB(docTitle, pdfBlob);
+            }
+
+            // Switch to Manga Creator view & OCR tab for step 3
+            switchView('pdf-creator');
+            switchTab('ocr');
+            await loadAndRenderPdfGrid();
+
+            if (createdDocId !== null) {
+                const pdfList = await loadPdfsFromDB();
+                const targetDoc = pdfList.find(p => p.id === createdDocId);
+                if (targetDoc) {
+                    selectPdfFile(targetDoc);
+                }
+            }
+
+            mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> បានបញ្ជូនទៅកាន់ Manga Creator និងទាញយក Word រួចរាល់!`;
+            logActivityEntry({
+                type: 'doc',
+                title: `បញ្ជូន DOCX ទៅ Manga Creator៖ ${currentMangaData.title}`,
+                subtitle: `ផ្ទុក ${downloadedPagesMap.size} ភាគ (Word Document)`,
+                details: `ទំហំសមាមាត្ររូបភាព 1:1`
+            });
+            alert(`🎉 បានបង្កើតឯកសារ Word (.docx) និងបញ្ជូន ${downloadedPagesMap.size} ភាគទៅកាន់ Manga Creator ដោយជោគជ័យ!`);
+        } catch (err) {
+            console.error(err);
+            alert('មានបញ្ហាក្នុងការបញ្ជូន DOCX៖ ' + err.message);
+            mangaDownloadStatus.innerHTML = `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-500"></i> បរាជ័យក្នុងការបញ្ជូន DOCX`;
+        } finally {
+            btnMangaDownloadDocx.innerHTML = originalBtnHTML;
+            btnMangaDownloadDocx.disabled = false;
             lucide.createIcons();
         }
     }
@@ -2467,7 +3387,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> បញ្ជូនទៅ PDF Creator រួចរាល់!`;
+            mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> បញ្ជូនទៅ Manga Creator រួចរាល់!`;
             lucide.createIcons();
             
             if (selectedMode === 'combine') {
@@ -2773,7 +3693,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 2. Clear history
                 localStorage.removeItem(HISTORY_KEY);
                 // 3. Clear active PDF states
-                activePdfItem = null;
+                activePdfFile = null;
                 selectedChaptersList.clear();
                 downloadedPagesMap.clear();
                 

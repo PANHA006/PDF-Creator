@@ -8,8 +8,13 @@ const fs = require('fs');
 const {
   generatePdfFromImages,
   renderPdfPagesToImages,
-  exportTranslatedPdf
+  applyKhmerOverlayToPdf
 } = require('./src/services/pdfService');
+
+const {
+  generateDocxFromImages,
+  generateDocxWithKhmerScript
+} = require('./src/services/docxService');
 
 const {
   scanOcrImage,
@@ -43,14 +48,24 @@ app.use(cors());
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 
-// Serve static assets
-app.use('/static', express.static(path.join(__dirname, 'static')));
+// Serve static assets with no-cache headers for instant updates
+app.use('/static', express.static(path.join(__dirname, 'static'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  }
+}));
 
-// Serve index.html UI
+// Serve index.html UI with dynamic cache-busting timestamp
 app.get('/', (req, res) => {
   const indexPath = path.join(__dirname, 'templates', 'index.html');
   if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
+    let html = fs.readFileSync(indexPath, 'utf8');
+    const timestamp = Date.now();
+    html = html.replace(/main\.js(\?v=[^"']*)?/g, `main.js?v=${timestamp}`);
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.send(html);
   } else {
     res.status(404).send('index.html not found in templates directory');
   }
@@ -119,16 +134,33 @@ app.post('/api/upload-pdf', upload.single('file'), async (req, res) => {
 });
 
 /**
+ * GET /api/gemini/status
+ * Check if Gemini API key is configured
+ */
+app.get('/api/gemini/status', (req, res) => {
+  const envKeyPresent = !!process.env.GEMINI_API_KEY;
+  return res.json({
+    status: 'success',
+    hasEnvKey: envKeyPresent,
+    maskedKey: envKeyPresent && process.env.GEMINI_API_KEY.length > 8
+      ? `${process.env.GEMINI_API_KEY.slice(0, 4)}...${process.env.GEMINI_API_KEY.slice(-4)}`
+      : null
+  });
+});
+
+/**
  * POST /api/scan-ocr-pdf & /api/manga-ocr-direct
  * Run Gemini Vision OCR & translation on PDF pages
  */
 async function handleOcrScan(req, res, isMangaDirect = false) {
+  const scanStartTime = Date.now();
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = (req.headers['x-gemini-api-key'] || req.body.apiKey || process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) {
+      console.warn('\x1b[31m[OCR Scan] Failed: Missing GEMINI_API_KEY\x1b[0m');
       return res.status(400).json({
         status: 'error',
-        message: 'Missing GEMINI_API_KEY. Please configure it in your .env file.'
+        message: 'មិនទាន់មាន Gemini API Key នៅឡើយទេ។ សូមបញ្ចូល Gemini API Key របស់អ្នកនៅក្នុងផ្ទាំង Settings ឬក្នុងឯកសារ .env។ (Missing GEMINI_API_KEY)'
       });
     }
 
@@ -136,11 +168,21 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
     const pagesOption = req.body.pages || 'all';
 
     if (!req.file) {
+      console.warn('\x1b[31m[OCR Scan] Failed: Missing PDF file\x1b[0m');
       return res.status(400).json({ status: 'error', message: 'Missing PDF file' });
     }
 
+    const fileName = req.file.originalname || 'document.pdf';
+    console.log('\n\x1b[36m' + '='.repeat(68) + '\x1b[0m');
+    console.log(`⚡ \x1b[1m\x1b[33m[START SCAN & TRANSLATE]\x1b[0m ${new Date().toLocaleTimeString()}`);
+    console.log(`📄 File: \x1b[32m${fileName}\x1b[0m (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
+    console.log(`🌐 Language: \x1b[35m${langOption}\x1b[0m | Target Pages: \x1b[36m${pagesOption}\x1b[0m | Mode: \x1b[34m${isMangaDirect ? 'Manga Direct' : 'Document PDF'}\x1b[0m`);
+    console.log('🔄 Rendering PDF pages to Vision images (150 DPI)...');
+
+    const renderStartTime = Date.now();
     const allPages = await renderPdfPagesToImages(req.file.buffer, 150);
     const totalPages = allPages.length;
+    console.log(`✓ Rendered \x1b[32m${totalPages}\x1b[0m PDF page(s) in \x1b[33m${((Date.now() - renderStartTime) / 1000).toFixed(2)}s\x1b[0m`);
 
     let targetPageIndices = [];
     if (pagesOption === 'all') {
@@ -159,19 +201,32 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
       }
     }
 
+    console.log(`🎯 Pages to scan: \x1b[33m[${targetPageIndices.map(i => i + 1).join(', ')}]\x1b[0m (Total: ${targetPageIndices.length})`);
+    console.log('\x1b[36m' + '-'.repeat(68) + '\x1b[0m');
+
     const ocrResults = [];
-    const BATCH_SIZE = 5; // Scan 5 pages concurrently
+    const BATCH_SIZE = 3; // Scan 3 pages concurrently for optimal throughput without API timeout
+    const totalBatches = Math.ceil(targetPageIndices.length / BATCH_SIZE);
+
     for (let i = 0; i < targetPageIndices.length; i += BATCH_SIZE) {
+      const currentBatchNum = Math.floor(i / BATCH_SIZE) + 1;
       const batchIndices = targetPageIndices.slice(i, i + BATCH_SIZE);
-      const batchPromises = batchIndices.map(async pIdx => {
+      const batchPageNums = batchIndices.map(idx => idx + 1);
+
+      console.log(`🚀 [Batch ${currentBatchNum}/${totalBatches}] Processing Page(s): \x1b[36m[${batchPageNums.join(', ')}]\x1b[0m`);
+
+      const batchPromises = batchIndices.map(async (pIdx, offset) => {
+        if (offset > 0) {
+          await new Promise(r => setTimeout(r, offset * 180)); // Stagger concurrent requests to prevent burst throttling
+        }
         const pageObj = allPages[pIdx];
         const pageNum = pIdx + 1;
         try {
           const pageResults = await scanOcrImage(apiKey, pageObj.buffer, pageNum, langOption, isMangaDirect);
           return { pageNum, results: pageResults || [] };
         } catch (pageErr) {
-          console.error(`[handleOcrScan] Page ${pageNum} failed:`, pageErr.message);
-          return { pageNum, results: [] };
+          console.error(`\x1b[31m   ✗ [Page ${pageNum}] OCR Error: ${pageErr.message}\x1b[0m`);
+          throw pageErr;
         }
       });
 
@@ -182,12 +237,20 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
       }
     }
 
+    const totalDuration = ((Date.now() - scanStartTime) / 1000).toFixed(2);
+    console.log('\x1b[36m' + '-'.repeat(68) + '\x1b[0m');
+    console.log(`🎉 \x1b[1m\x1b[32m[SCAN & TRANSLATE COMPLETE]\x1b[0m`);
+    console.log(`📊 Scanned Pages: \x1b[32m${targetPageIndices.length}\x1b[0m | Total Dialogues Extracted: \x1b[33m${ocrResults.length}\x1b[0m`);
+    console.log(`⏱️ Total Time Elapsed: \x1b[32m${totalDuration}s\x1b[0m`);
+    console.log('\x1b[36m' + '='.repeat(68) + '\x1b[0m\n');
+
     return res.json({
       status: 'success',
       results: ocrResults
     });
   } catch (err) {
-    console.error('Error in OCR scan:', err);
+    const errorDuration = ((Date.now() - scanStartTime) / 1000).toFixed(2);
+    console.error(`\x1b[31m[OCR Scan Error in ${errorDuration}s]:\x1b[0m`, err.message);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 }
@@ -201,11 +264,11 @@ app.post('/api/manga-ocr-direct', upload.single('file'), (req, res) => handleOcr
  */
 app.post('/api/ai-review', upload.single('file'), async (req, res) => {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = (req.headers['x-gemini-api-key'] || req.body.apiKey || process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) {
       return res.status(400).json({
         status: 'error',
-        message: 'Missing GEMINI_API_KEY environment variable. Please configure it in your .env file.'
+        message: 'មិនទាន់មាន Gemini API Key នៅឡើយទេ។ សូមបញ្ចូល Gemini API Key របស់អ្នកនៅក្នុងផ្ទាំង Settings ឬក្នុងឯកសារ .env។'
       });
     }
 
@@ -330,6 +393,88 @@ app.post('/api/manga/generate-zip', upload.none(), async (req, res) => {
 });
 
 /**
+ * POST /api/manga/generate-docx
+ * Generate and download a Word (.docx) document from Manga page images
+ */
+app.post('/api/manga/generate-docx', upload.none(), async (req, res) => {
+  try {
+    const filesJson = req.body.files;
+    if (!filesJson) {
+      return res.status(400).json({ status: 'error', message: 'Missing file list' });
+    }
+
+    const filesData = JSON.parse(filesJson);
+    const mangaTitle = req.body.manga_title || 'manga_chapter';
+    const safeName = mangaTitle.replace(/[^a-zA-Z0-9_\-\u1780-\u17FF]/g, '_').replace(/_+/g, '_') || 'manga_chapter';
+
+    const imageItems = filesData.map(f => {
+      let b64 = f.dataUrl || '';
+      if (b64.includes(',')) b64 = b64.split(',')[1];
+      return {
+        filename: f.name || 'page.png',
+        buffer: Buffer.from(b64, 'base64')
+      };
+    });
+
+    const docxBuffer = await generateDocxFromImages(imageItems);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"`);
+    return res.send(docxBuffer);
+  } catch (err) {
+    console.error('Error generating Manga DOCX:', err);
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+/**
+ * POST /api/generate-docx
+ * Generate a Word (.docx) document from uploaded images or PDF with optional OCR transcript
+ */
+app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
+  try {
+    const files = req.files || [];
+    if (files.length === 0) {
+      return res.status(400).json({ status: 'error', message: 'No images uploaded' });
+    }
+
+    const ocrItemsStr = req.body.ocr_items || '[]';
+    const ocrItems = JSON.parse(ocrItemsStr);
+    const title = req.body.title || 'Document';
+
+    let pageImages = [];
+    if (files.length === 1 && (files[0].mimetype === 'application/pdf' || files[0].originalname.endsWith('.pdf') || files[0].buffer.slice(0, 4).toString() === '%PDF')) {
+      const rendered = await renderPdfPagesToImages(files[0].buffer, 150);
+      pageImages = rendered.map((p, idx) => ({
+        pageNum: idx + 1,
+        buffer: p.buffer,
+        name: `page_${idx + 1}.jpg`
+      }));
+    } else {
+      pageImages = files.map((f, idx) => ({
+        pageNum: idx + 1,
+        buffer: f.buffer,
+        name: f.originalname
+      }));
+    }
+
+    let docxBuffer;
+    if (ocrItems.length > 0) {
+      docxBuffer = await generateDocxWithKhmerScript(pageImages, ocrItems, title);
+    } else {
+      docxBuffer = await generateDocxFromImages(pageImages);
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="document.docx"');
+    return res.send(docxBuffer);
+  } catch (err) {
+    console.error('Error generating DOCX:', err);
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+/**
  * POST /api/render-translated-page
  * Render translated Khmer speech bubbles onto a page image for live preview
  */
@@ -364,10 +509,10 @@ app.post('/api/render-translated-page', upload.single('file'), async (req, res) 
 });
 
 /**
- * POST /api/export-translated-pdf
- * Export modified PDF with translated pages replaced
+ * POST /api/apply-khmer-pdf
+ * Apply Khmer translated text overlays directly into PDF speech bubbles
  */
-app.post('/api/export-translated-pdf', upload.single('file'), async (req, res) => {
+app.post('/api/apply-khmer-pdf', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ status: 'error', message: 'Missing PDF file' });
@@ -376,16 +521,22 @@ app.post('/api/export-translated-pdf', upload.single('file'), async (req, res) =
     const ocrItemsStr = req.body.ocr_items || '[]';
     const ocrItems = JSON.parse(ocrItemsStr);
 
-    const finalPdfBuffer = await exportTranslatedPdf(req.file.buffer, ocrItems);
+    console.log(`\x1b[35m🎨 [APPLY KHMER OVERLAY] Processing ${ocrItems.length} translated items onto PDF...\x1b[0m`);
+    const startTime = Date.now();
+    const finalPdfBuffer = await applyKhmerOverlayToPdf(req.file.buffer, ocrItems);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`\x1b[32m✨ [APPLY KHMER OVERLAY] PDF created successfully (${duration}s, size: ${(finalPdfBuffer.length / (1024 * 1024)).toFixed(2)} MB)\x1b[0m`);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="manga_khmer_translated.pdf"');
     return res.send(finalPdfBuffer);
   } catch (err) {
-    console.error('Error exporting PDF:', err);
+    console.error('Error applying Khmer text to PDF:', err);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
+
+
 
 // Global Error Handler (Always return JSON instead of HTML error pages)
 app.use((err, req, res, next) => {

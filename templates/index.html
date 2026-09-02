@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Creator & OCR</title>
+    <title>Manga Creator & OCR</title>
     <!-- Google Font: Outfit & Kantumruy Pro (for Khmer) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -69,7 +69,7 @@
         <nav class="flex-1 p-4 space-y-2">
             <button id="nav-pdf-creator"
                 class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all bg-brand-50 dark:bg-brand-950/40 text-brand-600 dark:text-brand-400">
-                <i data-lucide="file-up" class="w-4 h-4"></i> PDF Creator & OCR
+                <i data-lucide="book-open" class="w-4 h-4"></i> Manga Creator & OCR
             </button>
             <button id="nav-manga-downloader"
                 class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400">
@@ -81,7 +81,7 @@
             </button>
         </nav>
         <div class="p-6 border-t border-slate-200 dark:border-slate-800 text-center">
-            <span class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">PDF Creator & OCR v1.1</span>
+            <span class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Manga Creator & OCR v1.1</span>
         </div>
     </div>
     <!-- Overlay Backdrop for Drawer -->
@@ -99,17 +99,25 @@
                 <i data-lucide="menu" class="w-5 h-5"></i>
             </button>
             <div class="bg-brand-600 p-2.5 rounded-xl text-white shadow-lg shadow-brand-500/30">
-                <i data-lucide="file-up" class="w-6 h-6"></i>
+                <i data-lucide="book-open" class="w-6 h-6"></i>
             </div>
             <div>
                 <h1
                     class="text-xl font-bold tracking-tight bg-gradient-to-r from-brand-500 to-indigo-500 bg-clip-text text-transparent">
-                    PDF Creator</h1>
-                <p class="text-xs text-slate-500 dark:text-slate-400">បម្លែងរូបភាពទៅជា PDF និងស្កែនអត្ថបទ (OCR)</p>
+                    Manga Creator</h1>
+                <p class="text-xs text-slate-500 dark:text-slate-400">បម្លែងរូបភាពទៅជា Manga, Word (.docx), PDF និងស្កែនអត្ថបទ (OCR)</p>
             </div>
         </div>
 
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-3">
+            <!-- Gemini API Key Button -->
+            <button id="btn-header-api-key"
+                class="px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 transition-all active:scale-95 text-amber-600 dark:text-amber-400 text-xs font-bold shadow-sm flex items-center gap-1.5"
+                title="កំណត់ Gemini API Key">
+                <i data-lucide="key" class="w-4 h-4"></i>
+                <span id="header-api-status" class="hidden sm:inline">API Key</span>
+            </button>
+
             <!-- Theme Toggle Button -->
             <button id="theme-toggle"
                 class="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-95 text-slate-600 dark:text-slate-300 shadow-sm"
@@ -125,64 +133,148 @@
         <div id="view-pdf-creator" class="flex-1 flex overflow-hidden">
             <!-- COLUMN 1: PDF PREVIEW PANEL (Left Side - 35%) -->
             <section
-                class="w-[35%] border-r border-slate-200 dark:border-slate-800 flex flex-col bg-slate-100 dark:bg-slate-900/50">
-                <!-- Preview Action Bar -->
+                class="w-[42%] lg:w-[38%] border-r border-slate-200 dark:border-slate-800 flex flex-col bg-slate-100 dark:bg-slate-900/50">
+                <!-- Word Editor Header Bar -->
                 <div
-                    class="px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex items-center justify-between gap-4">
+                    class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 flex items-center justify-between gap-2 shadow-sm z-10">
                     <div class="flex items-center gap-2">
-                        <span
-                            class="bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-300 text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
-                            <i data-lucide="eye" class="w-3.5 h-3.5"></i> PDF Preview
+                        <span id="viewport-badge"
+                            class="bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm shadow-blue-500/20">
+                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> <span id="viewport-badge-text">Word Editor</span>
                         </span>
                     </div>
 
                     <!-- Zoom Controls -->
-                    <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-sm">
-                        <button id="zoom-out" class="p-1.5 rounded hover:bg-white dark:hover:bg-slate-700 transition"
+                    <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs">
+                        <button id="zoom-out" class="p-1 rounded hover:bg-white dark:hover:bg-slate-700 transition"
                             title="បង្រួម">
-                            <i data-lucide="zoom-out" class="w-4 h-4"></i>
+                            <i data-lucide="zoom-out" class="w-3.5 h-3.5"></i>
                         </button>
-                        <span id="zoom-val" class="px-2 font-medium w-12 text-center text-xs">150%</span>
-                        <button id="zoom-in" class="p-1.5 rounded hover:bg-white dark:hover:bg-slate-700 transition"
+                        <span id="zoom-val" class="px-1.5 font-bold w-10 text-center text-[11px]">Fit</span>
+                        <button id="zoom-in" class="p-1 rounded hover:bg-white dark:hover:bg-slate-700 transition"
                             title="ពង្រីក">
-                            <i data-lucide="zoom-in" class="w-4 h-4"></i>
+                            <i data-lucide="zoom-in" class="w-3.5 h-3.5"></i>
                         </button>
                         <button id="zoom-fit"
-                            class="p-1.5 rounded hover:bg-white dark:hover:bg-slate-700 transition text-xs font-semibold px-2"
+                            class="p-1 rounded hover:bg-white dark:hover:bg-slate-700 transition font-bold px-1.5 text-[11px]"
                             title="ឱ្យសមស្រប">
                             Fit
                         </button>
                     </div>
 
                     <!-- Page Indicator -->
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                         <button id="prev-page"
-                            class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition disabled:opacity-40"
+                            class="p-1 rounded hover:bg-white dark:hover:bg-slate-700 transition disabled:opacity-40"
                             disabled>
-                            <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                            <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
                         </button>
-                        <span class="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        <span class="text-[11px] font-medium text-slate-600 dark:text-slate-400 px-1">
                             ទំព័រ <span id="current-page-num"
-                                class="text-brand-600 dark:text-brand-400 font-bold">1</span> នៃ <span
+                                class="text-blue-600 dark:text-blue-400 font-bold">1</span> នៃ <span
                                 id="total-pages-num" class="font-bold">1</span>
                         </span>
                         <button id="next-page"
-                            class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition disabled:opacity-40"
+                            class="p-1 rounded hover:bg-white dark:hover:bg-slate-700 transition disabled:opacity-40"
                             disabled>
-                            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                            <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                         </button>
                     </div>
                 </div>
 
-                <!-- Scrollable Pages Viewport -->
-                <div id="pdf-viewport" class="flex-1 flex overflow-hidden bg-slate-100 dark:bg-slate-900/40 relative">
+                <!-- Word Editing Ribbon Toolbar -->
+                <div id="word-editor-ribbon"
+                    class="px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 flex items-center justify-between gap-1.5 overflow-x-auto custom-scrollbar text-xs">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <!-- Shape Selector -->
+                        <div class="flex items-center gap-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 shadow-sm">
+                            <span class="text-[10px] font-bold text-slate-500">Shape:</span>
+                            <select id="editor-shape-select"
+                                class="bg-transparent border-0 font-bold text-xs focus:outline-none cursor-pointer py-0.5 pr-1"
+                                title="រាងពពកសន្ទនា (Bubble Shape)">
+                                <option value="rounded" selected>🔲 Rounded (ជ្រុងមូល)</option>
+                                <option value="oval">💬 Oval (ពងក្រពើ)</option>
+                                <option value="rect">⏹️ Rect (ជ្រុងកែង)</option>
+                                <option value="cloud">💭 Cloud (ពពកគំនិត)</option>
+                                <option value="transparent">📝 Text (គ្មានផ្ទៃ)</option>
+                            </select>
+                        </div>
+
+                        <!-- Font Family -->
+                        <select id="editor-font-family"
+                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 font-medium text-xs focus:outline-none focus:border-blue-500 cursor-pointer shadow-sm"
+                            title="ពុម្ពអក្សរ (Font Family)">
+                            <option value="'Khmer OS Content', sans-serif" selected>Khmer OS Content</option>
+                            <option value="'Khmer OS Battambang', sans-serif">Khmer OS Battambang</option>
+                            <option value="'Kantumruy Pro', sans-serif">Kantumruy Pro</option>
+                            <option value="'Moul', cursive">Moul (ក្បាលរឿង)</option>
+                            <option value="Arial, sans-serif">Arial / English</option>
+                        </select>
+
+                        <!-- Font Size -->
+                        <select id="editor-font-size"
+                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 font-bold text-xs focus:outline-none focus:border-blue-500 cursor-pointer shadow-sm"
+                            title="ទំហំអក្សរ (Font Size)">
+                            <option value="12">12px</option>
+                            <option value="14">14px</option>
+                            <option value="16">16px</option>
+                            <option value="18" selected>18px</option>
+                            <option value="20">20px</option>
+                            <option value="22">22px</option>
+                            <option value="24">24px</option>
+                            <option value="28">28px</option>
+                            <option value="32">32px</option>
+                        </select>
+
+                        <!-- Bold Toggle -->
+                        <button id="editor-btn-bold"
+                            class="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 font-extrabold text-xs transition active:scale-95 shadow-sm"
+                            title="អក្សរដិត (Bold)">
+                            B
+                        </button>
+
+                        <!-- Text Alignment -->
+                        <select id="editor-text-align"
+                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 font-semibold text-xs focus:outline-none cursor-pointer shadow-sm"
+                            title="តម្រឹមអត្ថបទ (Alignment)">
+                            <option value="center" selected>Align Center</option>
+                            <option value="left">Align Left</option>
+                            <option value="right">Align Right</option>
+                        </select>
+
+                        <!-- Text Color Picker -->
+                        <div class="relative flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-0.5 gap-1 shadow-sm">
+                            <span class="text-[10px] font-bold text-slate-500">Color:</span>
+                            <input type="color" id="editor-text-color" value="#0f172a"
+                                class="w-4 h-4 rounded cursor-pointer border-0 bg-transparent p-0" title="ពណ៌អក្សរ (Text Color)">
+                        </div>
+
+                        <!-- Bubble Background Toggle -->
+                        <button id="editor-btn-bubble-bg"
+                            class="px-2 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold transition flex items-center gap-1 shadow-sm"
+                            title="ផ្ទៃខាងក្រោយប្រអប់សន្ទនា">
+                            <span class="w-2.5 h-2.5 rounded-full bg-white border border-slate-400"></span> <span>Fill</span>
+                        </button>
+                    </div>
+
+                    <!-- Action: Add Shape / Text Box -->
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <button id="editor-btn-add-text"
+                            class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-2.5 py-1 rounded-lg transition active:scale-95 shadow-md flex items-center gap-1"
+                            title="បន្ថែមប្រអប់អក្សរថ្មីលើទំព័រ">
+                            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> បន្ថែមអក្សរ
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Scrollable Pages Viewport & Live Canvas Editor -->
+                <div id="pdf-viewport" class="flex-1 flex overflow-hidden bg-slate-200/70 dark:bg-slate-950/80 relative">
                     <!-- Empty state -->
                     <div id="pdf-empty-preview"
                         class="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-6 text-center">
-                        <i data-lucide="eye-off" class="w-12 h-12 mb-3 stroke-1 opacity-60"></i>
+                        <i data-lucide="edit" class="w-12 h-12 mb-3 stroke-1 opacity-60"></i>
                         <h3 class="text-xs font-semibold text-slate-700 dark:text-slate-300">មិនទាន់មានការជ្រើសរើស</h3>
-                        <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs">សូមជ្រើសរើសឯកសារ PDF
-                            ពីបញ្ជីខាងស្តាំ ឬ Upload ឯកសារ PDF ដើម្បីមើល Preview ទីនេះ</p>
+                        <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs">សូមជ្រើសរើសឯកសារ Word (.docx) ឬ Manga ពីបញ្ជីខាងស្តាំ ដើម្បីកែសម្រួលនៅទីនេះ</p>
                     </div>
                 </div>
             </section>
@@ -193,7 +285,7 @@
                 <div class="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-1">
                     <button id="tab-organize"
                         class="flex-1 py-3 px-4 rounded-lg flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200 bg-white dark:bg-slate-800 shadow-sm text-brand-600 dark:text-brand-400 border border-slate-200/50 dark:border-slate-700/50">
-                        <i data-lucide="folder-open" class="w-4 h-4"></i> បណ្ណាល័យ PDF (PDF Library)
+                        <i data-lucide="folder-open" class="w-4 h-4"></i> បណ្ណាល័យឯកសារ (Document Library)
                     </button>
                     <button id="tab-ocr"
                         class="flex-1 py-3 px-4 rounded-lg flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200 hover:bg-white/50 dark:hover:bg-slate-800/50 text-slate-500 dark:text-slate-400">
@@ -209,18 +301,17 @@
                         <!-- Dropzone -->
                         <div id="dropzone"
                             class="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8 text-center bg-slate-50/50 dark:bg-slate-900/20 hover:border-brand-500 hover:bg-brand-50/10 dark:hover:border-brand-500 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center group relative overflow-hidden">
-                            <input type="file" id="file-input" accept="application/pdf"
+                            <input type="file" id="file-input" accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                                 class="absolute inset-0 opacity-0 cursor-pointer">
                             <div
                                 class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700 mb-4 group-hover:scale-110 transition duration-300">
                                 <i data-lucide="file-plus" class="w-8 h-8 text-brand-500"></i>
                             </div>
-                            <h3 class="text-base font-bold text-slate-700 dark:text-slate-300">អូស និងទម្លាក់ឯកសារ PDF
-                                នៅទីនេះ</h3>
-                            <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-4">គាំទ្រតែឯកសារ PDF (.pdf)</p>
+                            <h3 class="text-base font-bold text-slate-700 dark:text-slate-300">អូស និងទម្លាក់ឯកសារ Word (.docx) ឬ PDF នៅទីនេះ</h3>
+                            <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-4">គាំទ្រឯកសារ Word (.docx) និង PDF (.pdf)</p>
                             <span
                                 class="bg-brand-600 text-white font-medium text-xs px-4 py-2 rounded-xl shadow-md group-hover:bg-brand-700 transition">
-                                ជ្រើសរើសឯកសារ PDF
+                                ជ្រើសរើសឯកសារ Word / PDF
                             </span>
                         </div>
 
@@ -229,7 +320,7 @@
                             <div class="flex items-center justify-between mb-3">
                                 <h3
                                     class="text-sm font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                                    <i data-lucide="files" class="w-4 h-4 text-brand-500"></i> បញ្ជីឯកសារ PDF ទាំងអស់
+                                    <i data-lucide="files" class="w-4 h-4 text-brand-500"></i> បញ្ជីឯកសារទាំងអស់
                                     (<span id="pdf-count">0</span>)
                                 </h3>
                                 <button id="clear-all"
@@ -270,6 +361,11 @@
                                     </div>
                                 </div>
                                 <div class="flex gap-2">
+                                    <button id="btn-download-docx"
+                                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md active:scale-95 flex items-center gap-1.5 disabled:opacity-40"
+                                        disabled title="ទាញយកជាឯកសារ Microsoft Word (.docx)">
+                                        <i data-lucide="file-text" class="w-3.5 h-3.5"></i> ទាញយក Word (.docx)
+                                    </button>
                                     <button id="btn-download"
                                         class="bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md active:scale-95 flex items-center gap-1.5 disabled:opacity-40"
                                         disabled>
@@ -331,12 +427,20 @@
                                 </div>
                             </div>
 
-                            <button id="btn-scan"
-                                class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm px-6 py-3 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
-                                disabled>
-                                <i data-lucide="sparkles" class="w-4 h-4 text-amber-300"></i> <span
-                                    id="btn-scan-label">⚡ Start Scan Text & Translate (Gemini AI)</span>
-                            </button>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button id="btn-scan"
+                                    class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm px-4 py-3 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
+                                    disabled>
+                                    <i data-lucide="sparkles" class="w-4 h-4 text-amber-300"></i> <span
+                                        id="btn-scan-label">⚡ Start Scan Text & Translate (Gemini AI)</span>
+                                </button>
+                                <button id="btn-apply-khmer-pdf"
+                                    class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm px-4 py-3 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none border border-emerald-400/30"
+                                    disabled title="បញ្ចូលអក្សរខ្មែរទាំងអស់ក្នុងតារាងទៅក្នុងឯកសារ Word (.docx) និងទាញយកភ្លាមៗ">
+                                    <i data-lucide="file-text" class="w-4 h-4 text-emerald-200"></i> <span
+                                        id="btn-apply-khmer-label">🎨 បញ្ចូលអក្សរខ្មែរទៅក្នុង Word (.docx)</span>
+                                </button>
+                            </div>
                         </div>
 
                         <!-- OCR Progress Loading State (Hidden by default) -->
@@ -405,12 +509,6 @@
                                             class="border border-violet-200 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 hover:bg-violet-100 dark:hover:bg-violet-900/40 text-violet-600 dark:text-violet-400 font-bold text-[10px] uppercase px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 active:scale-95 shadow-sm disabled:opacity-40"
                                             disabled title="Review and correct page OCR transcript using Gemini AI">
                                             <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> AI Review
-                                        </button>
-                                        <button id="btn-export-pdf"
-                                            class="border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] uppercase px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 active:scale-95 shadow-sm disabled:opacity-40"
-                                            disabled title="Export clean Khmer-typeset Manga PDF">
-                                            <i data-lucide="file-check" class="w-3.5 h-3.5 text-emerald-500"></i> Export
-                                            Khmer PDF
                                         </button>
                                         <button id="btn-toggle-fullscreen"
                                             class="border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 font-bold text-[10px] uppercase px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 active:scale-95 shadow-sm"
@@ -705,16 +803,21 @@
                         </div>
 
                         <!-- Download Actions -->
-                        <div class="flex gap-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <button id="btn-manga-download-docx"
+                                class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs px-4 py-3.5 rounded-xl transition shadow-lg shadow-blue-500/20 active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
+                                disabled title="ចងក្រងជាឯកសារ Word (.docx) និងបញ្ជូនទៅកាន់ Manga Creator">
+                                <i data-lucide="file-text" class="w-4 h-4 text-blue-200"></i> បញ្ជូន DOCX ទៅ Manga Creator
+                            </button>
                             <button id="btn-manga-download-zip"
-                                class="flex-1 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
+                                class="bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold text-xs px-4 py-3.5 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
                                 disabled>
                                 <i data-lucide="file-archive" class="w-4 h-4"></i> ទាញយកជា ZIP (.ZIP)
                             </button>
                             <button id="btn-manga-import-pdf"
-                                class="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition shadow-lg shadow-brand-500/20 active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
+                                class="bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-3.5 rounded-xl transition shadow-lg shadow-brand-500/20 active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
                                 disabled>
-                                <i data-lucide="arrow-right-left" class="w-4 h-4"></i> បញ្ជូនទៅ PDF Creator
+                                <i data-lucide="arrow-right-left" class="w-4 h-4"></i> បញ្ជូនទៅ Manga Creator
                             </button>
                         </div>
                     </div>
@@ -914,6 +1017,60 @@
                 <button id="btn-modal-confirm"
                     class="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition shadow-md shadow-rose-600/30 active:scale-95">
                     យល់ព្រមលុប (Confirm Delete)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Gemini API Key Settings -->
+    <div id="modal-api-key"
+        class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div
+            class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 transform transition-all">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5 text-amber-500">
+                    <div class="p-2.5 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                        <i data-lucide="key" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-800 dark:text-slate-100">Gemini API Key Settings</h3>
+                        <p class="text-xs text-slate-400">សម្រាប់មុខងារ AI OCR និងបកប្រែជាភាសាខ្មែរ</p>
+                    </div>
+                </div>
+                <button id="btn-close-api-modal" class="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-xs font-bold text-slate-600 dark:text-slate-300">បញ្ចូល Google Gemini API Key</label>
+                <div class="relative">
+                    <input type="text" id="modal-gemini-key-input"
+                        placeholder="AIzaSy..."
+                        class="w-full bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-mono focus:outline-none focus:border-brand-500 text-slate-800 dark:text-slate-200">
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Key ត្រូវបានរក្សាទុកក្នុង Browser របស់អ្នក</span>
+                    <a href="https://aistudio.google.com/app/apikey" target="_blank"
+                        class="text-brand-500 font-semibold hover:underline flex items-center gap-0.5">
+                        បង្កើត Key ឥតគិតថ្លៃ <i data-lucide="external-link" class="w-3 h-3"></i>
+                    </a>
+                </div>
+            </div>
+
+            <div class="p-3 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 rounded-xl text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                <p class="font-bold flex items-center gap-1"><i data-lucide="info" class="w-3.5 h-3.5"></i> ព័ត៌មានបន្ថែម៖</p>
+                <p class="text-[11px] text-blue-600 dark:text-blue-400">អ្នកក៏អាចកំណត់ <code class="font-mono bg-blue-100 dark:bg-blue-900/50 px-1 py-0.5 rounded text-[10px]">GEMINI_API_KEY=your_key</code> នៅក្នុងឯកសារ <code class="font-mono bg-blue-100 dark:bg-blue-900/50 px-1 py-0.5 rounded text-[10px]">.env</code> បានដូចគ្នា។</p>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-2">
+                <button id="btn-modal-api-cancel"
+                    class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                    បិទ (Close)
+                </button>
+                <button id="btn-modal-api-save"
+                    class="px-5 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs transition shadow-md shadow-brand-600/30 active:scale-95 flex items-center gap-1.5">
+                    <i data-lucide="check" class="w-3.5 h-3.5"></i> រក្សាទុក (Save Key)
                 </button>
             </div>
         </div>

@@ -1,5 +1,5 @@
 const sharp = require('sharp');
-const { generatePdfFromImages, renderPdfPagesToImages, exportTranslatedPdf } = require('../src/services/pdfService');
+const { generatePdfFromImages, renderPdfPagesToImages } = require('../src/services/pdfService');
 const { renderMangaPageKhmer, registeredKhmerFont } = require('../src/services/imageOverlayService');
 
 async function runPdfTests() {
@@ -66,13 +66,6 @@ async function runPdfTests() {
 
   const overlaidPng = await renderMangaPageKhmer(renderedPages[0].buffer, ocrItems);
   console.log('✓ renderMangaPageKhmer output size:', overlaidPng.length, 'bytes');
-
-  // 4. Test Export Translated PDF
-  const translatedPdf = await exportTranslatedPdf(pdfPortrait, [
-    { pageNum: 1, ...ocrItems[0] },
-    { pageNum: 1, ...ocrItems[1] }
-  ]);
-  console.log('✓ exportTranslatedPdf size:', translatedPdf.length, 'bytes');
 
   console.log('✓ [TEST SUITE 1] ALL PDF & IMAGE FEATURES PASSED!\n');
 }
