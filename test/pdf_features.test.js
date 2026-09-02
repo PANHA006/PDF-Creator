@@ -61,11 +61,18 @@ async function runPdfTests() {
       transText: 'តើអ្នកសុខសប្បាយជាទេ?',
       position: 'bottom-center',
       fontSize: 14
+    },
+    {
+      id: 'L1-3',
+      lineText: 'Wu Yu! Traitor!',
+      transText: 'Wu Yu! ក្នុងនាមជាផ្កាយ១ គេឯងអាចធ្វើរឿងក្បត់!',
+      box_2d: [150, 200, 320, 650],
+      fontSize: 16
     }
   ];
 
   const overlaidPng = await renderMangaPageKhmer(renderedPages[0].buffer, ocrItems);
-  console.log('✓ renderMangaPageKhmer output size:', overlaidPng.length, 'bytes');
+  console.log('✓ renderMangaPageKhmer with box_2d overlay output size:', overlaidPng.length, 'bytes');
 
   console.log('✓ [TEST SUITE 1] ALL PDF & IMAGE FEATURES PASSED!\n');
 }

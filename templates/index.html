@@ -162,6 +162,14 @@
                         </button>
                     </div>
 
+                    <!-- View Mode Toggle (Continuous Scroll vs Single Page) -->
+                    <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs">
+                        <button id="btn-scroll-mode" class="px-2 py-1 rounded bg-white dark:bg-slate-700 shadow-sm transition flex items-center gap-1.5 font-bold text-[11px] text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-600"
+                            title="ប្តូររវាងរមូរចុះក្រោមជាប់គ្នា (Webtoon Continuous Scroll) និងទំព័រទោល (Single Page)">
+                            <i data-lucide="scroll" class="w-3.5 h-3.5"></i> <span id="scroll-mode-label">Webtoon (រមូរ)</span>
+                        </button>
+                    </div>
+
                     <!-- Page Indicator -->
                     <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                         <button id="prev-page"
@@ -190,56 +198,56 @@
                         <div class="flex items-center gap-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 shadow-sm">
                             <span class="text-[10px] font-bold text-slate-500">Shape:</span>
                             <select id="editor-shape-select"
-                                class="bg-transparent border-0 font-bold text-xs focus:outline-none cursor-pointer py-0.5 pr-1"
+                                class="bg-transparent border-0 font-bold text-xs focus:outline-none cursor-pointer py-0.5 pr-1 text-slate-800 dark:text-slate-100"
                                 title="រាងពពកសន្ទនា (Bubble Shape)">
-                                <option value="rounded" selected>🔲 Rounded (ជ្រុងមូល)</option>
-                                <option value="oval">💬 Oval (ពងក្រពើ)</option>
-                                <option value="rect">⏹️ Rect (ជ្រុងកែង)</option>
-                                <option value="cloud">💭 Cloud (ពពកគំនិត)</option>
-                                <option value="transparent">📝 Text (គ្មានផ្ទៃ)</option>
+                                <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="rounded" selected>🔲 Rounded (ជ្រុងមូល)</option>
+                                <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="oval">💬 Oval (ពងក្រពើ)</option>
+                                <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="rect">⏹️ Rect (ជ្រុងកែង)</option>
+                                <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="cloud">💭 Cloud (ពពកគំនិត)</option>
+                                <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="transparent">📝 Text (គ្មានផ្ទៃ)</option>
                             </select>
                         </div>
 
                         <!-- Font Family -->
                         <select id="editor-font-family"
-                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 font-medium text-xs focus:outline-none focus:border-blue-500 cursor-pointer shadow-sm"
+                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg px-2 py-1 font-medium text-xs focus:outline-none focus:border-blue-500 cursor-pointer shadow-sm"
                             title="ពុម្ពអក្សរ (Font Family)">
-                            <option value="'Khmer OS Content', sans-serif" selected>Khmer OS Content</option>
-                            <option value="'Khmer OS Battambang', sans-serif">Khmer OS Battambang</option>
-                            <option value="'Kantumruy Pro', sans-serif">Kantumruy Pro</option>
-                            <option value="'Moul', cursive">Moul (ក្បាលរឿង)</option>
-                            <option value="Arial, sans-serif">Arial / English</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="'Khmer OS Content', sans-serif" selected>Khmer OS Content</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="'Khmer OS Battambang', sans-serif">Khmer OS Battambang</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="'Kantumruy Pro', sans-serif">Kantumruy Pro</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="'Moul', cursive">Moul (ក្បាលរឿង)</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="Arial, sans-serif">Arial / English</option>
                         </select>
 
                         <!-- Font Size -->
                         <select id="editor-font-size"
-                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 font-bold text-xs focus:outline-none focus:border-blue-500 cursor-pointer shadow-sm"
+                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg px-2 py-1 font-bold text-xs focus:outline-none focus:border-blue-500 cursor-pointer shadow-sm"
                             title="ទំហំអក្សរ (Font Size)">
-                            <option value="12">12px</option>
-                            <option value="14">14px</option>
-                            <option value="16">16px</option>
-                            <option value="18" selected>18px</option>
-                            <option value="20">20px</option>
-                            <option value="22">22px</option>
-                            <option value="24">24px</option>
-                            <option value="28">28px</option>
-                            <option value="32">32px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="12">12px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="14">14px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="16">16px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="18" selected>18px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="20">20px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="22">22px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="24">24px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="28">28px</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="32">32px</option>
                         </select>
 
                         <!-- Bold Toggle -->
                         <button id="editor-btn-bold"
-                            class="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 font-extrabold text-xs transition active:scale-95 shadow-sm"
+                            class="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-lg border border-slate-200 dark:border-slate-700 font-extrabold text-xs transition active:scale-95 shadow-sm"
                             title="អក្សរដិត (Bold)">
                             B
                         </button>
 
                         <!-- Text Alignment -->
                         <select id="editor-text-align"
-                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 font-semibold text-xs focus:outline-none cursor-pointer shadow-sm"
+                            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg px-1.5 py-1 font-semibold text-xs focus:outline-none cursor-pointer shadow-sm"
                             title="តម្រឹមអត្ថបទ (Alignment)">
-                            <option value="center" selected>Align Center</option>
-                            <option value="left">Align Left</option>
-                            <option value="right">Align Right</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="center" selected>Align Center</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="left">Align Left</option>
+                            <option class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100" value="right">Align Right</option>
                         </select>
 
                         <!-- Text Color Picker -->
@@ -249,20 +257,32 @@
                                 class="w-4 h-4 rounded cursor-pointer border-0 bg-transparent p-0" title="ពណ៌អក្សរ (Text Color)">
                         </div>
 
+                        <!-- Background / Line Color Picker -->
+                        <div class="relative flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-0.5 gap-1 shadow-sm">
+                            <span class="text-[10px] font-bold text-slate-500">Bg:</span>
+                            <input type="color" id="editor-bg-color" value="#ffffff"
+                                class="w-4 h-4 rounded cursor-pointer border-0 bg-transparent p-0" title="ពណ៌ផ្ទៃខាងក្រោយ (Background Color)">
+                        </div>
+
                         <!-- Bubble Background Toggle -->
                         <button id="editor-btn-bubble-bg"
                             class="px-2 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold transition flex items-center gap-1 shadow-sm"
-                            title="ផ្ទៃខាងក្រោយប្រអប់សន្ទនា">
+                            title="បិទ/បើក ផ្ទៃខាងក្រោយប្រអប់សន្ទនា">
                             <span class="w-2.5 h-2.5 rounded-full bg-white border border-slate-400"></span> <span>Fill</span>
                         </button>
                     </div>
 
-                    <!-- Action: Add Shape / Text Box -->
-                    <div class="flex items-center gap-1.5 shrink-0">
+                    <!-- Action: Add Text Box & Download DOCX -->
+                    <div class="flex items-center gap-2 shrink-0">
                         <button id="editor-btn-add-text"
-                            class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-2.5 py-1 rounded-lg transition active:scale-95 shadow-md flex items-center gap-1"
+                            class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-2.5 py-1 rounded-lg transition active:scale-95 shadow-sm flex items-center gap-1"
                             title="បន្ថែមប្រអប់អក្សរថ្មីលើទំព័រ">
                             <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> បន្ថែមអក្សរ
+                        </button>
+                        <button id="editor-btn-download-docx"
+                            class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1 rounded-lg transition active:scale-95 shadow-sm flex items-center gap-1"
+                            title="ទាញយកជាឯកសារ Word (.docx)">
+                            <i data-lucide="file-down" class="w-3.5 h-3.5"></i> ទាញយក DOCX
                         </button>
                     </div>
                 </div>
@@ -523,7 +543,7 @@
                                     <div class="w-full flex-1 flex flex-col min-w-[700px]">
                                         <!-- CSS Grid Header -->
                                         <div class="grid justify-start bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 py-2.5 px-4 gap-4 w-full shadow-md"
-                                            style="grid-template-columns: var(--ocr-grid-cols, 36px 36px 65px 50px 75px minmax(280px, 1fr) minmax(280px, 1fr));">
+                                            style="grid-template-columns: var(--ocr-grid-cols, 36px 36px 75px 130px minmax(260px, 1fr) minmax(260px, 1fr));">
                                             <div
                                                 class="flex justify-center border-r border-slate-200 dark:border-slate-800 pr-2 py-1">
                                                 <button id="ocr-btn-delete-all"
@@ -539,13 +559,10 @@
                                             </div>
                                             <div
                                                 class="border-r border-slate-200 dark:border-slate-800 pr-2 flex items-center py-1">
-                                                ID</div>
+                                                ID / ទំព័រ</div>
                                             <div
-                                                class="border-r border-slate-200 dark:border-slate-800 pr-2 flex items-center py-1">
-                                                PHRASE</div>
-                                            <div
-                                                class="border-r border-slate-200 dark:border-slate-800 pr-2 flex items-center py-1">
-                                                PAGE</div>
+                                                class="border-r border-slate-200 dark:border-slate-800 pr-2 flex items-center py-1 text-indigo-600 dark:text-indigo-400">
+                                                កូអរដោណេ (COORDS)</div>
                                             <div
                                                 class="border-r border-slate-200 dark:border-slate-800 pr-4 flex items-center py-1">
                                                 TEXT</div>

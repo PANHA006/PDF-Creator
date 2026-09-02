@@ -132,7 +132,7 @@ async function renderMangaPageKhmer(imageBuffer, ocrItems = []) {
 
     // 1. Clean / Whiteout original speech bubble area with smooth oval/rounded-rect
     drawRoundedRect(ctx, x0, y0, bwBox, bhBox, Math.min(16, Math.floor(bhBox * 0.3)));
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = item.bgColor || '#ffffff';
     ctx.fill();
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = '#e2e8f0';

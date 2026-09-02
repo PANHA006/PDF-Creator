@@ -93,20 +93,21 @@ async function scanOcrImage(apiKey, imageBuffer, pageNum, langOption = 'auto', i
   if (isMangaDirect) {
     prompt = `You are an expert manga OCR transcription and translation engine specializing in extracting character dialogues from manga and comics.
 
-Your task is to scan the attached page image and extract ALL character speech bubbles and thought bubbles.
+Your task is to scan the attached page image and extract ALL character speech bubbles and thought bubbles with their exact 2D bounding box coordinates on the page.
 
 Follow these strict rules:
 1. FOCUS ONLY ON CHARACTER DIALOGUE & THOUGHT BUBBLES.
-2. IGNORE sound effects (SFX), page numbers, publisher logos, scan watermarks, or background text.
-3. CONSOLIDATE MULTILINE BUBBLE DIALOGUES into single complete, coherent sentences. Do NOT split text inside the same speech bubble into separate rows.
-4. ORDER THE DIALOGUES in standard Manga reading order (Top-to-Bottom, Right-to-Left or Left-to-Right based on layout).
-5. TRANSLATE EACH DIALOGUE into natural, context-appropriate Khmer (ភាសាខ្មែរ).
+2. IGNORE sound effects (SFX), page numbers, publisher logos, scan watermarks, scanlation credits, or background text.
+3. DETECT EXACT BOUNDING BOX (box_2d) for each speech bubble as [ymin, xmin, ymax, xmax] on a normalized 0-1000 coordinate scale.
+4. CONSOLIDATE MULTILINE BUBBLE DIALOGUES into single complete, coherent sentences. Do NOT split text inside the same speech bubble into separate rows.
+5. ORDER THE DIALOGUES in standard Manga reading order (Top-to-Bottom, Right-to-Left or Left-to-Right based on layout).
+6. TRANSLATE EACH DIALOGUE into natural, context-appropriate Khmer (ភាសាខ្មែរ).
 
 Please respond ONLY with a JSON array matching this exact schema:
 [
   {
     "bubble_id": "B1",
-    "position": "Top-Right",
+    "box_2d": [ymin, xmin, ymax, xmax],
     "original_text": "Original speech bubble text in English/Japanese",
     "khmer_translation": "អត្ថបទបកប្រែជាភាសាខ្មែរយ៉ាងរលូន"
   }
@@ -114,22 +115,23 @@ Please respond ONLY with a JSON array matching this exact schema:
   } else {
     prompt = `You are an expert OCR transcription and translation engine for Manga/Comic dialogues.
 
-Your task is to scan the attached page image and extract ALL text, speech bubbles, and dialogue blocks.
+Your task is to scan the attached page image and extract ALL text, speech bubbles, and dialogue blocks with their exact 2D bounding box coordinates on the page.
 
 Follow these strict rules:
-1. EXTRACT ALL TEXT & DIALOGUE BLOCKS clearly.
-2. IGNORE page numbers, publisher logos, scan watermarks, or background garbage noise.
-3. CONSOLIDATE MULTILINE SENTENCES inside the same block/speech bubble into single complete, coherent sentences.
-4. ORDER THE TEXT BLOCKS in standard reading order (Top-to-Bottom, Left-to-Right or Right-to-Left based on layout).
-5. TRANSLATE TARGET: Translate ALL sentence dialogues, vocabulary, and titles (e.g. "Consort" -> "ព្រះស្នំ", "Crown Prince" -> "រជ្ជទាយាទ", "Emperor" -> "អធិរាជ", "Kingdom" -> "នគរ") into 100% fluent, natural KHMER (ភាសាខ្មែរ ONLY). Do NOT leave common English words or titles un-translated inside Khmer sentences!
-6. PROPER CHARACTER NAMES: Only keep specific proper character names (e.g. "Wu Yu", "Yuan Xi") in their original Latin/English name form or transliterated cleanly inside the Khmer sentence. All other words and titles in the sentence MUST be fully translated into Khmer!
+1. EXTRACT ALL SPEECH BUBBLES & DIALOGUE BLOCKS clearly.
+2. IGNORE page numbers, publisher credits/banners, scan watermarks, or background garbage noise.
+3. DETECT EXACT BOUNDING BOX (box_2d) for each speech bubble as [ymin, xmin, ymax, xmax] on a normalized 0-1000 coordinate scale.
+4. CONSOLIDATE MULTILINE SENTENCES inside the same block/speech bubble into single complete, coherent sentences.
+5. ORDER THE TEXT BLOCKS in standard reading order (Top-to-Bottom, Left-to-Right or Right-to-Left based on layout).
+6. TRANSLATE TARGET: Translate ALL sentence dialogues, vocabulary, and titles (e.g. "Consort" -> "ព្រះស្នំ", "Crown Prince" -> "រជ្ជទាយាទ", "Emperor" -> "អធិរាជ", "Kingdom" -> "នគរ") into 100% fluent, natural KHMER (ភាសាខ្មែរ ONLY). Do NOT leave common English words or titles un-translated inside Khmer sentences!
+7. PROPER CHARACTER NAMES: Only keep specific proper character names (e.g. "Wu Yu", "Yuan Xi") in their original Latin/English name form or transliterated cleanly inside the Khmer sentence. All other words and titles in the sentence MUST be fully translated into Khmer!
 ${langRule}
 
 Please respond ONLY with a JSON array matching this exact schema:
 [
   {
     "id": "L1",
-    "position": "Top-Left",
+    "box_2d": [ymin, xmin, ymax, xmax],
     "original_text": "Original text content from document or manga",
     "khmer_translation": "អត្ថបទបកប្រែជាភាសាខ្មែរយ៉ាងរលូន"
   }
@@ -174,6 +176,7 @@ Please respond ONLY with a JSON array matching this exact schema:
     const origText = (b.original_text || '').trim();
     const khmerText = (b.khmer_translation || '').trim();
     const posHint = b.position || '';
+    const box2d = Array.isArray(b.box_2d) && b.box_2d.length === 4 ? b.box_2d : null;
 
     // Backend CJK noise filter when user selected English
     if (langOption === 'eng' && origText && !latinRegex.test(origText) && cjkRegex.test(origText)) {
@@ -188,6 +191,7 @@ Please respond ONLY with a JSON array matching this exact schema:
         lineText: origText || khmerText,
         transText: khmerText,
         position: posHint,
+        box_2d: box2d,
         ...(isMangaDirect ? { isMangaBubble: true } : {})
       });
     }

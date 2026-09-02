@@ -184,3 +184,48 @@
 .ocr-text-input, .ocr-trans-input {
     field-sizing: content;
 }
+
+/* Fix Dropdown Select & Option text contrast in both Light and Dark modes */
+select {
+    color: #0f172a !important;
+}
+
+.dark select {
+    color: #f8fafc !important;
+}
+
+select option {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 13px !important;
+    padding: 6px 10px !important;
+}
+
+.dark select option {
+    background-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+select option:checked {
+    background-color: #3b82f6 !important;
+    color: #ffffff !important;
+}
+
+/* Word Editor Ribbon Specific Select styling */
+#word-editor-ribbon select {
+    color: #0f172a;
+}
+
+.dark #word-editor-ribbon select {
+    color: #f8fafc;
+}
+
+#word-editor-ribbon select option {
+    background-color: #ffffff;
+    color: #0f172a;
+}
+
+.dark #word-editor-ribbon select option {
+    background-color: #0f172a;
+    color: #f8fafc;
+}

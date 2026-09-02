@@ -1,10 +1,10 @@
-const { Document, Packer, Paragraph, ImageRun, Table, TableRow, TableCell, WidthType, AlignmentType, TextRun, HeadingLevel } = require('docx');
+const { Document, Packer, Paragraph, ImageRun, AlignmentType } = require('docx');
 const sharp = require('sharp');
+const { renderMangaPageKhmer } = require('./imageOverlayService');
 
 function pxToTwips(px) {
   return Math.round(px * 15);
 }
-
 
 async function generateDocxFromImages(imageItems = []) {
   if (!imageItems || imageItems.length === 0) {
@@ -80,158 +80,44 @@ async function generateDocxFromImages(imageItems = []) {
   return await Packer.toBuffer(doc);
 }
 
+/**
+ * Generate 1:1 Full-page Visual Manga Word (.docx) document with Khmer speech bubbles burned onto images
+ */
+async function generateDocxVisualManga(pageImages = [], ocrItems = [], mangaTitle = 'Manga Document') {
+  if (!pageImages || pageImages.length === 0) {
+    throw new Error('No images provided for DOCX generation');
+  }
 
-async function generateDocxWithKhmerScript(pageImages = [], ocrItems = [], mangaTitle = 'Manga Document') {
-  const children = [];
-
-  children.push(
-    new Paragraph({
-      text: '📖 ' + mangaTitle,
-      heading: HeadingLevel.TITLE,
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 200, after: 100 }
-    }),
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: 'Khmer Manga Transcript & Images | Total Pages: ' + pageImages.length,
-          color: '64748b',
-          size: 18,
-          italics: true
-        })
-      ],
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 300 }
-    })
-  );
+  const renderedPages = [];
 
   for (let pIdx = 0; pIdx < pageImages.length; pIdx++) {
     const pageObj = pageImages[pIdx];
     const pageNum = pIdx + 1;
     let imgBuffer = pageObj.buffer;
 
-    const metadata = await sharp(imgBuffer).metadata();
-    const origW = metadata.width || 800;
-    const origH = metadata.height || 1200;
-
-    // Normalize to standard JPEG for Microsoft Word OpenXML
-    imgBuffer = await sharp(imgBuffer).jpeg({ quality: 90 }).toBuffer();
-
-    const displayW = 540;
-    const displayH = Math.min(780, Math.round((origH / origW) * displayW));
-
     const pageItems = ocrItems.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
 
-    children.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: '📄 Page ' + pageNum,
-            bold: true,
-            size: 24,
-            color: '4338ca'
-          })
-        ],
-        spacing: { before: 300, after: 150 }
-      }),
-      new Paragraph({
-        children: [
-          new ImageRun({
-            data: imgBuffer,
-            transformation: {
-              width: displayW,
-              height: displayH
-            },
-            type: 'jpg'
-          })
-        ],
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 200 }
-      })
-    );
-
+    // If there are Khmer translations for this page, render them onto the image buffer!
     if (pageItems.length > 0) {
-      const tableRows = [
-        new TableRow({
-          tableHeader: true,
-          children: [
-            new TableCell({
-              width: { size: 10, type: WidthType.PERCENTAGE },
-              children: [new Paragraph({ children: [new TextRun({ text: 'ID', bold: true, size: 18, color: 'ffffff' })], alignment: AlignmentType.CENTER })],
-              shading: { fill: '4338ca' }
-            }),
-            new TableCell({
-              width: { size: 45, type: WidthType.PERCENTAGE },
-              children: [new Paragraph({ children: [new TextRun({ text: 'Original Text', bold: true, size: 18, color: 'ffffff' })] })],
-              shading: { fill: '4338ca' }
-            }),
-            new TableCell({
-              width: { size: 45, type: WidthType.PERCENTAGE },
-              children: [new Paragraph({ children: [new TextRun({ text: 'Khmer Translation (អត្ថបទខ្មែរ)', bold: true, size: 18, color: 'ffffff' })] })],
-              shading: { fill: '4338ca' }
-            })
-          ]
-        })
-      ];
-
-      for (let i = 0; i < pageItems.length; i++) {
-        const item = pageItems[i];
-        const rowBg = i % 2 === 0 ? 'f8fafc' : 'ffffff';
-        tableRows.push(
-          new TableRow({
-            children: [
-              new TableCell({
-                width: { size: 10, type: WidthType.PERCENTAGE },
-                children: [new Paragraph({ children: [new TextRun({ text: '#' + (i + 1), size: 18, color: '64748b' })], alignment: AlignmentType.CENTER })],
-                shading: { fill: rowBg }
-              }),
-              new TableCell({
-                width: { size: 45, type: WidthType.PERCENTAGE },
-                children: [new Paragraph({ children: [new TextRun({ text: item.lineText || item.original_text || '', size: 20 })] })],
-                shading: { fill: rowBg }
-              }),
-              new TableCell({
-                width: { size: 45, type: WidthType.PERCENTAGE },
-                children: [new Paragraph({ children: [new TextRun({ text: item.transText || item.khmer_translation || '', bold: true, size: 20, color: '0f172a' })] })],
-                shading: { fill: rowBg }
-              })
-            ]
-          })
-        );
+      try {
+        imgBuffer = await renderMangaPageKhmer(imgBuffer, pageItems);
+      } catch (err) {
+        console.warn(`[DocxService] Failed to overlay Khmer text on page ${pageNum}:`, err.message);
       }
-
-      children.push(
-        new Table({
-          rows: tableRows,
-          width: { size: 100, type: WidthType.PERCENTAGE }
-        }),
-        new Paragraph({ text: '', spacing: { after: 300 } })
-      );
     }
+
+    renderedPages.push({
+      pageNum,
+      buffer: imgBuffer,
+      name: pageObj.name || `page_${pageNum}.jpg`
+    });
   }
 
-  const doc = new Document({
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: {
-              top: 720,
-              bottom: 720,
-              left: 720,
-              right: 720
-            }
-          }
-        },
-        children: children
-      }
-    ]
-  });
-
-  return await Packer.toBuffer(doc);
+  return await generateDocxFromImages(renderedPages);
 }
 
 module.exports = {
   generateDocxFromImages,
-  generateDocxWithKhmerScript
+  generateDocxWithKhmerScript: generateDocxVisualManga,
+  generateDocxVisualManga
 };

@@ -141,7 +141,16 @@ document.addEventListener('DOMContentLoaded', () => {
             pageNum: r.pageNum,
             lineText: r.lineText,
             transText: r.transText,
-            lang: r.lang
+            lang: r.lang,
+            box_2d: r.box_2d,
+            shape: r.shape,
+            fontSize: r.fontSize,
+            fontFamily: r.fontFamily,
+            textAlign: r.textAlign,
+            color: r.color,
+            isBold: r.isBold,
+            x_pct: r.x_pct,
+            y_pct: r.y_pct
         }));
         localStorage.setItem('ocrResults', JSON.stringify(cleanResults));
     }
@@ -231,6 +240,21 @@ document.addEventListener('DOMContentLoaded', () => {
         nextPageBtn.disabled = (currentPage === images.length || images.length <= 1);
     }
 
+    function ensureItemBox2D(item, idx = 0) {
+        if (!item) return;
+        if (!item.box_2d || !Array.isArray(item.box_2d) || item.box_2d.length !== 4) {
+            const itemIdx = (idx !== undefined && idx >= 0) ? idx : (item.lineNum ? item.lineNum - 1 : 0);
+            const topPct = 12 + ((itemIdx % 7) * 12);
+            const leftPct = 15;
+            item.box_2d = [
+                Math.round(topPct * 10),
+                Math.round(leftPct * 10),
+                Math.round((topPct + 10) * 10),
+                Math.round((leftPct + 60) * 10)
+            ];
+        }
+    }
+
     async function initApp() {
         const savedLang = localStorage.getItem('selectedLang');
         if (savedLang && ocrLangSelect) {
@@ -239,7 +263,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const savedResults = localStorage.getItem('ocrResults');
         if (savedResults) {
-            ocrResults = JSON.parse(savedResults);
+            try {
+                ocrResults = JSON.parse(savedResults);
+                ocrResults.forEach((r, idx) => {
+                    ensureItemBox2D(r, idx);
+                    if (!r.bgColor) r.bgColor = "#ffffff";
+                    if (r.hasBg === undefined) r.hasBg = true;
+                });
+                saveOcrResults();
+            } catch (e) {
+                console.error("Failed to parse saved ocrResults", e);
+            }
         }
 
         // Load PDF Grid from database on startup
@@ -781,6 +815,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentDocPageIndex = 0;
     let docZoomLevel = 100;
     let isDocFitWidth = true;
+    let isContinuousScroll = true; // Default: Webtoon Continuous Vertical Scroll
 
     // Word Editor Ribbon State
     let editorCurrentShape = "rounded";
@@ -789,6 +824,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let editorIsBold = false;
     let editorCurrentAlign = "center";
     let editorCurrentColor = "#0f172a";
+    let editorCurrentBgColor = "#ffffff";
     let editorHasBubbleBg = true;
     let selectedBubbleItem = null;
 
@@ -800,6 +836,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnNextPage = document.getElementById('next-page');
     const currentPageNumSpan = document.getElementById('current-page-num');
     const totalPagesNumSpan = document.getElementById('total-pages-num');
+    const btnScrollMode = document.getElementById('btn-scroll-mode');
+    const scrollModeLabel = document.getElementById('scroll-mode-label');
 
     const editorShapeSelect = document.getElementById('editor-shape-select');
     const editorFontFamily = document.getElementById('editor-font-family');
@@ -807,8 +845,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const editorBtnBold = document.getElementById('editor-btn-bold');
     const editorTextAlign = document.getElementById('editor-text-align');
     const editorTextColor = document.getElementById('editor-text-color');
+    const editorBgColor = document.getElementById('editor-bg-color');
     const editorBtnBubbleBg = document.getElementById('editor-btn-bubble-bg');
     const editorBtnAddText = document.getElementById('editor-btn-add-text');
+    const editorBtnDownloadDocx = document.getElementById('editor-btn-download-docx');
 
     function updateWordViewerControls() {
         const total = currentDocPages.length;
@@ -834,7 +874,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function applyShapeStyles(bubble, shape, hasBg) {
+    function updateScrollModeButtonUI() {
+        if (!btnScrollMode) return;
+        if (isContinuousScroll) {
+            btnScrollMode.innerHTML = `<i data-lucide="scroll" class="w-3.5 h-3.5 text-blue-500"></i> <span id="scroll-mode-label">Webtoon (រមូរ)</span>`;
+            btnScrollMode.classList.add('bg-blue-50', 'dark:bg-blue-950/40', 'border-blue-300', 'text-blue-600');
+        } else {
+            btnScrollMode.innerHTML = `<i data-lucide="file" class="w-3.5 h-3.5 text-slate-500"></i> <span id="scroll-mode-label">ទំព័រទោល (Page)</span>`;
+            btnScrollMode.classList.remove('bg-blue-50', 'dark:bg-blue-950/40', 'border-blue-300', 'text-blue-600');
+        }
+        lucide.createIcons();
+    }
+
+    if (btnScrollMode) {
+        btnScrollMode.addEventListener('click', () => {
+            isContinuousScroll = !isContinuousScroll;
+            updateScrollModeButtonUI();
+            renderWordDocViewer(false);
+            if (isContinuousScroll) {
+                scrollToPage(currentDocPageIndex);
+            }
+        });
+    }
+
+    function applyShapeStyles(bubble, shape, hasBg, customBgColor = null) {
+        const bgColor = customBgColor || editorCurrentBgColor || "#ffffff";
+
         if (shape === 'oval') {
             bubble.style.borderRadius = "50% / 50%";
             bubble.style.padding = "14px 18px";
@@ -857,18 +922,266 @@ document.addEventListener('DOMContentLoaded', () => {
             bubble.style.padding = "8px 14px";
         }
 
-        if (hasBg) {
-            bubble.style.backgroundColor = "rgba(255, 255, 255, 0.96)";
-            bubble.style.borderColor = "rgba(59, 130, 246, 0.6)";
-            bubble.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.12)";
+        if (hasBg !== false) {
+            bubble.style.backgroundColor = bgColor;
+            bubble.style.borderColor = "transparent";
+            bubble.style.boxShadow = "none";
         } else {
-            bubble.style.backgroundColor = "rgba(255, 255, 255, 0.25)";
-            bubble.style.borderColor = "rgba(59, 130, 246, 0.8)";
+            bubble.style.backgroundColor = "transparent";
+            bubble.style.borderColor = "transparent";
+            bubble.style.boxShadow = "none";
         }
     }
 
-    function renderWordDocViewer() {
+    function createBubbleElement(item, itemIdx, sheet, pageNum) {
+        const bubble = document.createElement('div');
+        bubble.className = "word-editor-bubble absolute border border-transparent hover:border-blue-400/40 transition-all group flex items-center justify-center cursor-move";
+        
+        // Positioning from box_2d or auto offset
+        let topPct = 15 + (itemIdx * 14);
+        let leftPct = 15;
+        let widthPct = 60;
+        let heightPct = 10;
+
+        if (item.box_2d && Array.isArray(item.box_2d) && item.box_2d.length === 4) {
+            const [ymin, xmin, ymax, xmax] = item.box_2d;
+            topPct = (ymin / 10);
+            leftPct = (xmin / 10);
+            widthPct = Math.max(15, (xmax - xmin) / 10);
+            heightPct = Math.max(6, (ymax - ymin) / 10);
+        }
+
+        bubble.style.top = `${Math.min(88, Math.max(1, topPct))}%`;
+        bubble.style.left = `${Math.min(85, Math.max(1, leftPct))}%`;
+        bubble.style.width = `${Math.min(96, widthPct)}%`;
+        bubble.style.minHeight = `${Math.min(90, heightPct)}%`;
+
+        const currentShape = item.shape || editorCurrentShape || "rounded";
+        const currentHasBg = (item.hasBg !== undefined) ? item.hasBg : true;
+        const currentBgColor = item.bgColor || editorCurrentBgColor || "#ffffff";
+        applyShapeStyles(bubble, currentShape, currentHasBg, currentBgColor);
+
+        if (selectedBubbleItem === item) {
+            bubble.classList.add('ring-2', 'ring-blue-500');
+        }
+
+        // Top Drag Handle
+        const dragHandle = document.createElement('div');
+        dragHandle.className = "bubble-drag-handle absolute -top-2.5 -left-2.5 w-5 h-5 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-grab active:cursor-grabbing z-20";
+        dragHandle.innerHTML = `<i data-lucide="move" class="w-3 h-3"></i>`;
+
+        // Delete Bubble Button
+        const delBtn = document.createElement('div');
+        delBtn.className = "bubble-del-btn absolute -top-2.5 -right-2.5 w-5 h-5 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-pointer z-20";
+        delBtn.innerHTML = `✕`;
+        delBtn.title = "លុបប្រអប់អក្សរនេះ";
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const targetIdx = ocrResults.indexOf(item);
+            if (targetIdx > -1) {
+                ocrResults.splice(targetIdx, 1);
+                selectedBubbleItem = null;
+                renderWordDocViewer(true);
+                renderOcrTable();
+            }
+        });
+
+        // Resizing Handles (Bottom-Right, Bottom-Left, Right Edge, Bottom Edge)
+        const resizeSE = document.createElement('div');
+        resizeSE.className = "absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-se-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
+
+        const resizeSW = document.createElement('div');
+        resizeSW.className = "absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
+
+        const resizeE = document.createElement('div');
+        resizeE.className = "absolute top-1/2 -right-1.5 -translate-y-1/2 w-2.5 h-5 bg-blue-500 rounded-sm cursor-e-resize opacity-0 group-hover:opacity-100 transition z-20";
+
+        const resizeS = document.createElement('div');
+        resizeS.className = "absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-2.5 bg-blue-500 rounded-sm cursor-s-resize opacity-0 group-hover:opacity-100 transition z-20";
+
+        // Editable text inside shape
+        const textSpan = document.createElement('div');
+        textSpan.contentEditable = "true";
+        textSpan.className = "bubble-text-content w-full h-full outline-none select-text leading-relaxed flex items-center justify-center";
+        textSpan.style.textAlign = item.textAlign || editorCurrentAlign || "center";
+        textSpan.style.fontFamily = item.fontFamily || editorCurrentFont || "'Khmer OS Content', sans-serif";
+        textSpan.style.fontSize = `${item.fontSize || editorCurrentSize || "18"}px`;
+        textSpan.style.fontWeight = (item.isBold !== undefined ? item.isBold : editorIsBold) ? "bold" : "normal";
+        textSpan.style.color = item.color || editorCurrentColor || "#0f172a";
+
+        // Solid White Text line background with NO shadow and NO border
+        const lineBgColor = item.bgColor || editorCurrentBgColor || "#ffffff";
+        textSpan.style.backgroundColor = lineBgColor;
+        textSpan.style.borderRadius = "6px";
+        textSpan.style.padding = "6px 12px";
+        textSpan.style.boxShadow = "none";
+        textSpan.style.border = "none";
+
+        textSpan.innerText = item.transText || item.khmer_translation || item.lineText || item.original_text || 'វាយអក្សរខ្មែរ...';
+
+        // Click selection
+        bubble.addEventListener('click', (e) => {
+            selectedBubbleItem = item;
+            if (item.shape && editorShapeSelect) editorShapeSelect.value = item.shape;
+            if (item.fontSize && editorFontSize) editorFontSize.value = item.fontSize;
+            if (item.fontFamily && editorFontFamily) editorFontFamily.value = item.fontFamily;
+            if (item.textAlign && editorTextAlign) editorTextAlign.value = item.textAlign;
+            if (item.color && editorTextColor) editorTextColor.value = item.color;
+            if (item.bgColor && editorBgColor) editorBgColor.value = item.bgColor;
+        });
+
+        // Real-time two-way synchronization: updating on text input
+        textSpan.addEventListener('input', () => {
+            item.transText = textSpan.innerText;
+            item.khmer_translation = textSpan.innerText;
+            renderOcrTable();
+        });
+
+        // Resizing mechanics (Corner SE & SW & E & S handles)
+        const initResize = (e, dir) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const rect = sheet.getBoundingClientRect();
+            const initialW = bubble.offsetWidth;
+            const initialH = bubble.offsetHeight;
+            const startX = e.clientX;
+            const startY = e.clientY;
+
+            const onResizeMove = (moveEvt) => {
+                const dx = moveEvt.clientX - startX;
+                const dy = moveEvt.clientY - startY;
+                let newW = initialW;
+                let newH = initialH;
+
+                if (dir.includes('e')) newW = Math.max(40, initialW + dx);
+                if (dir.includes('w')) newW = Math.max(40, initialW - dx);
+                if (dir.includes('s')) newH = Math.max(20, initialH + dy);
+
+                const newWPct = (newW / rect.width) * 100;
+                const newHPct = (newH / rect.height) * 100;
+
+                bubble.style.width = `${Math.min(99, Math.max(4, newWPct))}%`;
+                bubble.style.minHeight = `${Math.min(99, Math.max(2, newHPct))}%`;
+
+                const currentLeft = (bubble.offsetLeft / rect.width) * 100;
+                const currentTop = (bubble.offsetTop / rect.height) * 100;
+
+                if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
+                item.box_2d[0] = Math.round(currentTop * 10);
+                item.box_2d[1] = Math.round(currentLeft * 10);
+                item.box_2d[2] = Math.round((currentTop + newHPct) * 10);
+                item.box_2d[3] = Math.round((currentLeft + newWPct) * 10);
+            };
+
+            const onResizeUp = () => {
+                document.removeEventListener('mousemove', onResizeMove);
+                document.removeEventListener('mouseup', onResizeUp);
+                saveOcrResults();
+                renderOcrTable();
+            };
+
+            document.addEventListener('mousemove', onResizeMove);
+            document.addEventListener('mouseup', onResizeUp);
+        };
+
+        resizeSE.addEventListener('mousedown', (e) => initResize(e, 'se'));
+        resizeSW.addEventListener('mousedown', (e) => initResize(e, 'sw'));
+        resizeE.addEventListener('mousedown', (e) => initResize(e, 'e'));
+        resizeS.addEventListener('mousedown', (e) => initResize(e, 's'));
+
+        // Dragging mechanics with unrestricted movement across the entire page (Top to Footer / Bottom)
+        let isDragging = false;
+
+        const onMouseDown = (e) => {
+            if (e.target === textSpan && textSpan.isContentEditable && document.activeElement === textSpan) return;
+            if (e.target === delBtn || e.target === resizeSE || e.target === resizeSW || e.target === resizeE || e.target === resizeS) return;
+            isDragging = true;
+            
+            const bubbleRect = bubble.getBoundingClientRect();
+            const grabOffsetX = e.clientX - bubbleRect.left;
+            const grabOffsetY = e.clientY - bubbleRect.top;
+
+            bubble.style.zIndex = "100";
+            selectedBubbleItem = item;
+            e.preventDefault();
+
+            const onMouseMove = (moveEvt) => {
+                if (!isDragging) return;
+                const currentSheetRect = sheet.getBoundingClientRect();
+                
+                // Calculate position relative to the sheet, taking scroll & zoom into account
+                const mouseXInSheet = moveEvt.clientX - currentSheetRect.left - grabOffsetX;
+                const mouseYInSheet = moveEvt.clientY - currentSheetRect.top - grabOffsetY;
+
+                const leftPctNow = (mouseXInSheet / currentSheetRect.width) * 100;
+                const topPctNow = (mouseYInSheet / currentSheetRect.height) * 100;
+                const widthPctNow = (bubble.offsetWidth / currentSheetRect.width) * 100;
+                const heightPctNow = (bubble.offsetHeight / currentSheetRect.height) * 100;
+
+                // Allow free movement from 0% all the way to 99% (bottom/footer of page)
+                const clampLeft = Math.min(99, Math.max(0, leftPctNow));
+                const clampTop = Math.min(99, Math.max(0, topPctNow));
+
+                bubble.style.left = `${clampLeft}%`;
+                bubble.style.top = `${clampTop}%`;
+
+                // Update box_2d in data model
+                if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
+                item.box_2d[0] = Math.round(clampTop * 10);
+                item.box_2d[1] = Math.round(clampLeft * 10);
+                item.box_2d[2] = Math.round((clampTop + heightPctNow) * 10);
+                item.box_2d[3] = Math.round((clampLeft + widthPctNow) * 10);
+            };
+
+            const onMouseUp = () => {
+                isDragging = false;
+                bubble.style.zIndex = "10";
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                saveOcrResults();
+                renderOcrTable();
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        };
+
+        bubble.addEventListener('mousedown', onMouseDown);
+
+        bubble.appendChild(dragHandle);
+        bubble.appendChild(delBtn);
+        bubble.appendChild(resizeSE);
+        bubble.appendChild(resizeSW);
+        bubble.appendChild(resizeE);
+        bubble.appendChild(resizeS);
+        bubble.appendChild(textSpan);
+
+        return bubble;
+    }
+
+    function scrollToPage(pageIndex) {
+        if (!currentDocPages || currentDocPages.length === 0) return;
+        currentDocPageIndex = Math.max(0, Math.min(currentDocPages.length - 1, pageIndex));
+        if (isContinuousScroll) {
+            const targetSheet = document.getElementById(`word-page-sheet-${currentDocPageIndex + 1}`);
+            if (targetSheet) {
+                targetSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            updateWordViewerControls();
+        } else {
+            renderWordDocViewer(false);
+        }
+    }
+
+    function renderWordDocViewer(preserveScroll = true) {
         if (!pdfViewport) return;
+
+        let prevScrollTop = 0;
+        const oldContainer = pdfViewport.querySelector('.word-editor-scroll-container');
+        if (oldContainer && preserveScroll) {
+            prevScrollTop = oldContainer.scrollTop;
+        }
+
         pdfViewport.innerHTML = '';
 
         if (!currentDocPages || currentDocPages.length === 0) {
@@ -880,246 +1193,113 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
             updateWordViewerControls();
+            updateScrollModeButtonUI();
             lucide.createIcons();
             return;
         }
 
-        const curPage = currentDocPages[currentDocPageIndex];
-        if (!curPage) return;
+        if (isContinuousScroll) {
+            // WEBTOON / CONTINUOUS VERTICAL SCROLL MODE (All 20 Pages vertically stacked)
+            const container = document.createElement('div');
+            container.className = "word-editor-scroll-container w-full h-full overflow-y-auto flex flex-col items-center gap-6 p-4 custom-scrollbar bg-slate-200/70 dark:bg-slate-950/80";
 
-        const container = document.createElement('div');
-        container.className = "w-full h-full overflow-auto flex items-start justify-center p-4 custom-scrollbar bg-slate-200/70 dark:bg-slate-950/80";
+            currentDocPages.forEach((pageObj, pIdx) => {
+                const pageNum = pIdx + 1;
+                const sheet = document.createElement('div');
+                sheet.id = `word-page-sheet-${pageNum}`;
+                sheet.dataset.pageIndex = pIdx;
+                sheet.className = "word-page-sheet bg-white dark:bg-slate-900 shadow-2xl rounded-sm border border-slate-300/80 dark:border-slate-800 transition-all duration-200 relative flex items-center justify-center overflow-hidden shrink-0 select-none";
+                sheet.style.width = isDocFitWidth ? '100%' : `${docZoomLevel}%`;
+                sheet.style.maxWidth = isDocFitWidth ? '640px' : 'none';
 
-        const sheet = document.createElement('div');
-        sheet.className = "word-page-sheet bg-white dark:bg-slate-900 shadow-2xl rounded-sm border border-slate-300/80 dark:border-slate-800 transition-all duration-200 relative flex items-center justify-center overflow-hidden my-auto select-none";
-        sheet.style.width = isDocFitWidth ? '100%' : `${docZoomLevel}%`;
-        sheet.style.maxWidth = isDocFitWidth ? '640px' : 'none';
+                // Discreet Page Badge
+                const pageBadge = document.createElement('div');
+                pageBadge.className = "absolute top-2 left-2 px-2.5 py-1 bg-slate-900/80 hover:bg-slate-900 text-white text-[10px] font-bold rounded-lg z-30 shadow-md pointer-events-none backdrop-blur-sm border border-white/15 flex items-center gap-1.5 transition";
+                pageBadge.innerHTML = `<i data-lucide="file-text" class="w-3 h-3 text-blue-400"></i> ទំព័រ ${pageNum}`;
+                sheet.appendChild(pageBadge);
 
-        const img = document.createElement('img');
-        img.src = curPage.dataUrl;
-        img.alt = `Page ${currentDocPageIndex + 1}`;
-        img.className = "w-full h-auto block select-none pointer-events-none";
-        sheet.appendChild(img);
+                const img = document.createElement('img');
+                img.src = pageObj.dataUrl;
+                img.alt = `Page ${pageNum}`;
+                img.loading = "lazy";
+                img.className = "w-full h-auto block select-none pointer-events-none";
+                sheet.appendChild(img);
 
-        // Overlay layer for interactive speech bubbles and text boxes
-        const overlay = document.createElement('div');
-        overlay.className = "word-editor-overlay absolute inset-0 w-full h-full pointer-events-auto";
+                // Overlay layer for interactive speech bubbles and text boxes
+                const overlay = document.createElement('div');
+                overlay.className = "word-editor-overlay absolute inset-0 w-full h-full pointer-events-auto";
 
-        const pageNum = currentDocPageIndex + 1;
-        const pageItems = ocrResults.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
+                const pageItems = ocrResults.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
+                pageItems.forEach((item, itemIdx) => {
+                    const bubble = createBubbleElement(item, itemIdx, sheet, pageNum);
+                    overlay.appendChild(bubble);
+                });
 
-        pageItems.forEach((item, itemIdx) => {
-            const bubble = document.createElement('div');
-            bubble.className = "word-editor-bubble absolute border border-blue-400/80 hover:border-blue-500 transition-shadow group flex items-center justify-center cursor-move";
-            
-            // Positioning from box_2d or auto offset
-            let topPct = 15 + (itemIdx * 14);
-            let leftPct = 15;
-            let widthPct = 60;
-            let heightPct = 10;
+                sheet.appendChild(overlay);
+                container.appendChild(sheet);
+            });
 
-            if (item.box_2d && Array.isArray(item.box_2d) && item.box_2d.length === 4) {
-                const [ymin, xmin, ymax, xmax] = item.box_2d;
-                topPct = (ymin / 10);
-                leftPct = (xmin / 10);
-                widthPct = Math.max(15, (xmax - xmin) / 10);
-                heightPct = Math.max(6, (ymax - ymin) / 10);
+            // IntersectionObserver to dynamically detect which page is in view while scrolling
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const idx = parseInt(entry.target.dataset.pageIndex, 10);
+                        if (!isNaN(idx) && idx !== currentDocPageIndex) {
+                            currentDocPageIndex = idx;
+                            updateWordViewerControls();
+                        }
+                    }
+                });
+            }, {
+                root: container,
+                threshold: 0.4
+            });
+
+            container.querySelectorAll('.word-page-sheet').forEach(s => observer.observe(s));
+            pdfViewport.appendChild(container);
+
+            if (preserveScroll && prevScrollTop > 0) {
+                container.scrollTop = prevScrollTop;
             }
+        } else {
+            // SINGLE PAGE VIEW MODE
+            const curPage = currentDocPages[currentDocPageIndex];
+            if (!curPage) return;
 
-            bubble.style.top = `${Math.min(88, Math.max(1, topPct))}%`;
-            bubble.style.left = `${Math.min(85, Math.max(1, leftPct))}%`;
-            bubble.style.width = `${Math.min(96, widthPct)}%`;
-            bubble.style.minHeight = `${Math.min(90, heightPct)}%`;
+            const container = document.createElement('div');
+            container.className = "word-editor-scroll-container w-full h-full overflow-auto flex items-start justify-center p-4 custom-scrollbar bg-slate-200/70 dark:bg-slate-950/80";
 
-            const currentShape = item.shape || editorCurrentShape;
-            applyShapeStyles(bubble, currentShape, editorHasBubbleBg);
+            const sheet = document.createElement('div');
+            sheet.id = `word-page-sheet-${currentDocPageIndex + 1}`;
+            sheet.dataset.pageIndex = currentDocPageIndex;
+            sheet.className = "word-page-sheet bg-white dark:bg-slate-900 shadow-2xl rounded-sm border border-slate-300/80 dark:border-slate-800 transition-all duration-200 relative flex items-center justify-center overflow-hidden my-auto select-none";
+            sheet.style.width = isDocFitWidth ? '100%' : `${docZoomLevel}%`;
+            sheet.style.maxWidth = isDocFitWidth ? '640px' : 'none';
 
-            if (selectedBubbleItem === item) {
-                bubble.classList.add('ring-2', 'ring-blue-500');
-            }
+            const img = document.createElement('img');
+            img.src = curPage.dataUrl;
+            img.alt = `Page ${currentDocPageIndex + 1}`;
+            img.className = "w-full h-auto block select-none pointer-events-none";
+            sheet.appendChild(img);
 
-            // Top Drag Handle
-            const dragHandle = document.createElement('div');
-            dragHandle.className = "bubble-drag-handle absolute -top-2.5 -left-2.5 w-5 h-5 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-grab active:cursor-grabbing z-20";
-            dragHandle.innerHTML = `<i data-lucide="move" class="w-3 h-3"></i>`;
+            const overlay = document.createElement('div');
+            overlay.className = "word-editor-overlay absolute inset-0 w-full h-full pointer-events-auto";
 
-            // Delete Bubble Button
-            const delBtn = document.createElement('div');
-            delBtn.className = "bubble-del-btn absolute -top-2.5 -right-2.5 w-5 h-5 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-pointer z-20";
-            delBtn.innerHTML = `✕`;
-            delBtn.title = "លុបប្រអប់អក្សរនេះ";
-            delBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const targetIdx = ocrResults.indexOf(item);
-                if (targetIdx > -1) {
-                    ocrResults.splice(targetIdx, 1);
-                    selectedBubbleItem = null;
-                    renderWordDocViewer();
-                    renderOcrTable();
-                }
+            const pageNum = currentDocPageIndex + 1;
+            const pageItems = ocrResults.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
+
+            pageItems.forEach((item, itemIdx) => {
+                const bubble = createBubbleElement(item, itemIdx, sheet, pageNum);
+                overlay.appendChild(bubble);
             });
 
-            // Resizing Handles (Bottom-Right, Bottom-Left, Right Edge, Bottom Edge)
-            const resizeSE = document.createElement('div');
-            resizeSE.className = "absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-se-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
-
-            const resizeSW = document.createElement('div');
-            resizeSW.className = "absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
-
-            const resizeE = document.createElement('div');
-            resizeE.className = "absolute top-1/2 -right-1.5 -translate-y-1/2 w-2.5 h-5 bg-blue-500 rounded-sm cursor-e-resize opacity-0 group-hover:opacity-100 transition z-20";
-
-            const resizeS = document.createElement('div');
-            resizeS.className = "absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-2.5 bg-blue-500 rounded-sm cursor-s-resize opacity-0 group-hover:opacity-100 transition z-20";
-
-            // Editable text inside shape
-            const textSpan = document.createElement('div');
-            textSpan.contentEditable = "true";
-            textSpan.className = "bubble-text-content w-full h-full outline-none select-text leading-relaxed flex items-center justify-center";
-            textSpan.style.textAlign = item.textAlign || editorCurrentAlign;
-            textSpan.style.fontFamily = item.fontFamily || editorCurrentFont;
-            textSpan.style.fontSize = `${item.fontSize || editorCurrentSize}px`;
-            textSpan.style.fontWeight = (item.isBold !== undefined ? item.isBold : editorIsBold) ? "bold" : "normal";
-            textSpan.style.color = item.color || editorCurrentColor;
-            textSpan.innerText = item.transText || item.khmer_translation || item.lineText || item.original_text || 'វាយអក្សរខ្មែរ...';
-
-            // Click selection
-            bubble.addEventListener('click', (e) => {
-                selectedBubbleItem = item;
-                if (item.shape && editorShapeSelect) editorShapeSelect.value = item.shape;
-                if (item.fontSize && editorFontSize) editorFontSize.value = item.fontSize;
-                if (item.fontFamily && editorFontFamily) editorFontFamily.value = item.fontFamily;
-                if (item.textAlign && editorTextAlign) editorTextAlign.value = item.textAlign;
-            });
-
-            // Real-time two-way synchronization: updating on text input
-            textSpan.addEventListener('input', () => {
-                item.transText = textSpan.innerText;
-                item.khmer_translation = textSpan.innerText;
-                renderOcrTable();
-            });
-
-            // Resizing mechanics (Corner SE & E / S handles)
-            const initResize = (e, dir) => {
-                e.stopPropagation();
-                e.preventDefault();
-                const startX = e.clientX;
-                const startY = e.clientY;
-                const initialW = bubble.offsetWidth;
-                const initialH = bubble.offsetHeight;
-                const parentW = sheet.clientWidth;
-                const parentH = sheet.clientHeight;
-
-                const onResizeMove = (moveEvt) => {
-                    const dx = moveEvt.clientX - startX;
-                    const dy = moveEvt.clientY - startY;
-                    let newW = initialW;
-                    let newH = initialH;
-
-                    if (dir.includes('e')) newW = Math.max(50, initialW + dx);
-                    if (dir.includes('w')) newW = Math.max(50, initialW - dx);
-                    if (dir.includes('s')) newH = Math.max(30, initialH + dy);
-
-                    const newWPct = (newW / parentW) * 100;
-                    const newHPct = (newH / parentH) * 100;
-
-                    bubble.style.width = `${Math.min(95, newWPct)}%`;
-                    bubble.style.minHeight = `${Math.min(90, newHPct)}%`;
-
-                    const currentLeft = (bubble.offsetLeft / parentW) * 100;
-                    const currentTop = (bubble.offsetTop / parentH) * 100;
-
-                    if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
-                    item.box_2d[0] = Math.round(currentTop * 10);
-                    item.box_2d[1] = Math.round(currentLeft * 10);
-                    item.box_2d[2] = Math.round((currentTop + newHPct) * 10);
-                    item.box_2d[3] = Math.round((currentLeft + newWPct) * 10);
-                };
-
-                const onResizeUp = () => {
-                    document.removeEventListener('mousemove', onResizeMove);
-                    document.removeEventListener('mouseup', onResizeUp);
-                };
-
-                document.addEventListener('mousemove', onResizeMove);
-                document.addEventListener('mouseup', onResizeUp);
-            };
-
-            resizeSE.addEventListener('mousedown', (e) => initResize(e, 'se'));
-            resizeSW.addEventListener('mousedown', (e) => initResize(e, 'sw'));
-            resizeE.addEventListener('mousedown', (e) => initResize(e, 'e'));
-            resizeS.addEventListener('mousedown', (e) => initResize(e, 's'));
-
-            // Dragging mechanics
-            let isDragging = false;
-            let startX, startY, initialLeft, initialTop;
-
-            const onMouseDown = (e) => {
-                if (e.target === textSpan && textSpan.isContentEditable && document.activeElement === textSpan) return;
-                if (e.target === delBtn || e.target === resizeSE || e.target === resizeSW || e.target === resizeE || e.target === resizeS) return;
-                isDragging = true;
-                startX = e.clientX;
-                startY = e.clientY;
-                initialLeft = bubble.offsetLeft;
-                initialTop = bubble.offsetTop;
-                bubble.style.zIndex = "100";
-                selectedBubbleItem = item;
-                e.preventDefault();
-
-                const onMouseMove = (moveEvt) => {
-                    if (!isDragging) return;
-                    const dx = moveEvt.clientX - startX;
-                    const dy = moveEvt.clientY - startY;
-                    const newLeft = initialLeft + dx;
-                    const newTop = initialTop + dy;
-                    
-                    const parentW = sheet.clientWidth;
-                    const parentH = sheet.clientHeight;
-
-                    const leftPctNow = (newLeft / parentW) * 100;
-                    const topPctNow = (newTop / parentH) * 100;
-                    const widthPctNow = (bubble.offsetWidth / parentW) * 100;
-                    const heightPctNow = (bubble.offsetHeight / parentH) * 100;
-
-                    bubble.style.left = `${Math.min(88, Math.max(0, leftPctNow))}%`;
-                    bubble.style.top = `${Math.min(92, Math.max(0, topPctNow))}%`;
-
-                    // Update box_2d in data model
-                    if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
-                    item.box_2d[0] = Math.round(topPctNow * 10);
-                    item.box_2d[1] = Math.round(leftPctNow * 10);
-                    item.box_2d[2] = Math.round((topPctNow + heightPctNow) * 10);
-                    item.box_2d[3] = Math.round((leftPctNow + widthPctNow) * 10);
-                };
-
-                const onMouseUp = () => {
-                    isDragging = false;
-                    bubble.style.zIndex = "10";
-                    document.removeEventListener('mousemove', onMouseMove);
-                    document.removeEventListener('mouseup', onMouseUp);
-                };
-
-                document.addEventListener('mousemove', onMouseMove);
-                document.addEventListener('mouseup', onMouseUp);
-            };
-
-            bubble.addEventListener('mousedown', onMouseDown);
-
-            bubble.appendChild(dragHandle);
-            bubble.appendChild(delBtn);
-            bubble.appendChild(resizeSE);
-            bubble.appendChild(resizeSW);
-            bubble.appendChild(resizeE);
-            bubble.appendChild(resizeS);
-            bubble.appendChild(textSpan);
-            overlay.appendChild(bubble);
-        });
-
-        sheet.appendChild(overlay);
-        container.appendChild(sheet);
-        pdfViewport.appendChild(container);
+            sheet.appendChild(overlay);
+            container.appendChild(sheet);
+            pdfViewport.appendChild(container);
+        }
 
         updateWordViewerControls();
+        updateScrollModeButtonUI();
         lucide.createIcons();
     }
 
@@ -1130,7 +1310,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedBubbleItem) {
                 selectedBubbleItem.shape = editorCurrentShape;
             }
-            renderWordDocViewer();
+            saveOcrResults();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1140,7 +1321,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedBubbleItem) {
                 selectedBubbleItem.fontFamily = editorCurrentFont;
             }
-            renderWordDocViewer();
+            saveOcrResults();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1150,7 +1332,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedBubbleItem) {
                 selectedBubbleItem.fontSize = editorCurrentSize;
             }
-            renderWordDocViewer();
+            saveOcrResults();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1160,7 +1343,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedBubbleItem) {
                 selectedBubbleItem.textAlign = editorCurrentAlign;
             }
-            renderWordDocViewer();
+            saveOcrResults();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1172,7 +1356,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedBubbleItem) {
                 selectedBubbleItem.isBold = editorIsBold;
             }
-            renderWordDocViewer();
+            saveOcrResults();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1182,7 +1367,24 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedBubbleItem) {
                 selectedBubbleItem.color = editorCurrentColor;
             }
-            renderWordDocViewer();
+            saveOcrResults();
+            renderWordDocViewer(true);
+        });
+    }
+
+    if (editorBgColor) {
+        editorBgColor.addEventListener('input', () => {
+            editorCurrentBgColor = editorBgColor.value;
+            editorHasBubbleBg = true;
+            if (editorBtnBubbleBg) {
+                editorBtnBubbleBg.classList.add('bg-blue-50', 'border-blue-400');
+            }
+            if (selectedBubbleItem) {
+                selectedBubbleItem.bgColor = editorCurrentBgColor;
+                selectedBubbleItem.hasBg = true;
+            }
+            saveOcrResults();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1191,7 +1393,11 @@ document.addEventListener('DOMContentLoaded', () => {
             editorHasBubbleBg = !editorHasBubbleBg;
             editorBtnBubbleBg.classList.toggle('bg-blue-50', editorHasBubbleBg);
             editorBtnBubbleBg.classList.toggle('border-blue-400', editorHasBubbleBg);
-            renderWordDocViewer();
+            if (selectedBubbleItem) {
+                selectedBubbleItem.hasBg = editorHasBubbleBg;
+            }
+            saveOcrResults();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1217,8 +1423,77 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             ocrResults.push(newItem);
             selectedBubbleItem = newItem;
-            renderWordDocViewer();
+            renderWordDocViewer(true);
             renderOcrTable();
+        });
+    }
+
+    if (editorBtnDownloadDocx) {
+        editorBtnDownloadDocx.addEventListener('click', async () => {
+            if ((!currentDocPages || currentDocPages.length === 0) && (!images || images.length === 0) && !currentPdfBlob) {
+                alert('⚠️ មិនទាន់មានទំព័រ ឬរូបភាពដើម្បីទាញយកជា Word (.docx) ឡើយ!');
+                return;
+            }
+
+            const origHtml = editorBtnDownloadDocx.innerHTML;
+            editorBtnDownloadDocx.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> កំពុងទាញយក...`;
+            editorBtnDownloadDocx.disabled = true;
+
+            try {
+                const formData = new FormData();
+                if (currentDocPages && currentDocPages.length > 0) {
+                    for (let idx = 0; idx < currentDocPages.length; idx++) {
+                        const p = currentDocPages[idx];
+                        if (p.dataUrl) {
+                            const resBlob = await fetch(p.dataUrl).then(r => r.blob());
+                            formData.append('images', resBlob, `page_${idx + 1}.jpg`);
+                        }
+                    }
+                } else if (images && images.length > 0) {
+                    images.forEach((img, idx) => {
+                        formData.append('images', img.file, img.file.name || `page_${idx + 1}.png`);
+                    });
+                } else if (currentPdfBlob) {
+                    formData.append('images', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+                }
+
+                formData.append('ocr_items', JSON.stringify(ocrResults || []));
+                const baseName = (activePdfFile && activePdfFile.name) ? activePdfFile.name.replace(/\.[^/.]+$/, '') : (pdfFilename.value || 'manga_document');
+                formData.append('title', baseName);
+
+                const res = await fetch('/api/generate-docx', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Server error: ${res.status}`);
+                }
+
+                const docxBlob = await res.blob();
+                const url = URL.createObjectURL(docxBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${baseName}.docx`;
+                document.body.appendChild(a);
+                a.click();
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                logActivityEntry({
+                    type: 'doc',
+                    title: `ទាញយកជា Word៖ ${baseName}.docx`,
+                    subtitle: `ឯកសារ Microsoft Word (.docx)`,
+                    details: `ទំព័រសរុប ${currentDocPages ? currentDocPages.length : 1} ទំព័រ`
+                });
+            } catch (err) {
+                console.error('Error generating DOCX:', err);
+                alert('មានបញ្ហាក្នុងការទាញយកជា Word (.docx)៖ ' + err.message);
+            } finally {
+                editorBtnDownloadDocx.innerHTML = origHtml;
+                editorBtnDownloadDocx.disabled = false;
+                lucide.createIcons();
+            }
         });
     }
 
@@ -1226,7 +1501,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!pdfBlob) {
             currentDocPages = [];
             currentDocPageIndex = 0;
-            renderWordDocViewer();
+            renderWordDocViewer(false);
             return;
         }
 
@@ -1251,13 +1526,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.status === 'success' && data.pages && data.pages.length > 0) {
                 currentDocPages = data.pages;
                 currentDocPageIndex = 0;
-                renderWordDocViewer();
+                renderWordDocViewer(false);
             } else {
                 throw new Error(data.message || 'Failed to render pages');
             }
         } catch (err) {
             console.error('Error rendering document viewer pages:', err);
-            renderWordDocViewer();
+            renderWordDocViewer(false);
         }
     }
 
@@ -1265,8 +1540,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnPrevPage) {
         btnPrevPage.addEventListener('click', () => {
             if (currentDocPageIndex > 0) {
-                currentDocPageIndex--;
-                renderWordDocViewer();
+                scrollToPage(currentDocPageIndex - 1);
             }
         });
     }
@@ -1274,8 +1548,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnNextPage) {
         btnNextPage.addEventListener('click', () => {
             if (currentDocPageIndex < currentDocPages.length - 1) {
-                currentDocPageIndex++;
-                renderWordDocViewer();
+                scrollToPage(currentDocPageIndex + 1);
             }
         });
     }
@@ -1284,7 +1557,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnZoomIn.addEventListener('click', () => {
             isDocFitWidth = false;
             docZoomLevel = Math.min(250, docZoomLevel + 25);
-            renderWordDocViewer();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1292,7 +1565,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnZoomOut.addEventListener('click', () => {
             isDocFitWidth = false;
             docZoomLevel = Math.max(50, docZoomLevel - 25);
-            renderWordDocViewer();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1300,7 +1573,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnZoomFit.addEventListener('click', () => {
             isDocFitWidth = true;
             docZoomLevel = 100;
-            renderWordDocViewer();
+            renderWordDocViewer(true);
         });
     }
 
@@ -1308,11 +1581,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (e) => {
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
         if (e.key === 'ArrowLeft' && currentDocPageIndex > 0) {
-            currentDocPageIndex--;
-            renderWordDocViewer();
+            scrollToPage(currentDocPageIndex - 1);
         } else if (e.key === 'ArrowRight' && currentDocPageIndex < currentDocPages.length - 1) {
-            currentDocPageIndex++;
-            renderWordDocViewer();
+            scrollToPage(currentDocPageIndex + 1);
         }
     });
 
@@ -1580,6 +1851,7 @@ document.addEventListener('DOMContentLoaded', () => {
             items.forEach((item, idx) => {
                 item.lineNum = idx + 1;
                 item.id = `L${pageNumInt}-${idx + 1}`;
+                ensureItemBox2D(item, idx);
                 ocrResults.push(item);
             });
         });
@@ -1608,7 +1880,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     function adjustGridColumns() {
-        currentGridCols = '36px 36px 65px 50px 75px minmax(280px, 1fr) minmax(280px, 1fr)';
+        currentGridCols = '36px 36px 75px 130px minmax(260px, 1fr) minmax(260px, 1fr)';
 
         const headerGrid = document.querySelector('#ocr-table-container .grid.sticky');
         if (headerGrid) {
@@ -1647,7 +1919,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnToggleFullscreen) btnToggleFullscreen.classList.remove('hidden');
         ocrTableBody.innerHTML = '';
 
-        ocrResults.forEach((res) => {
+        ocrResults.forEach((res, resIdx) => {
+            ensureItemBox2D(res, resIdx);
             const rowEl = document.createElement('div');
 
             // Render a beautiful warning/undo banner if the row is in pending delete state
@@ -1686,6 +1959,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const estTextRows = Math.max(1, Math.ceil((res.lineText || '').length / 45));
             const estTransRows = Math.max(1, Math.ceil((res.transText || '').length / 45));
 
+            const coordStr = res.box_2d && Array.isArray(res.box_2d) && res.box_2d.length === 4
+                ? `[${res.box_2d.join(', ')}]`
+                : `[0, 0, 0, 0]`;
+
             rowEl.innerHTML = `
                 <div class="flex justify-center border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 items-center">
                     <button class="ocr-btn-delete p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-400 hover:text-rose-500 transition" title="លុបឃ្លានេះ">
@@ -1695,9 +1972,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="flex items-center justify-center border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2">
                     <input type="checkbox" class="ocr-row-checkbox w-3.5 h-3.5 text-brand-600 border-slate-300 rounded focus:ring-brand-500 cursor-pointer" data-id="${res.id}">
                 </div>
-                <div class="font-mono text-[10px] text-slate-500 font-bold border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 flex items-center">${res.id}</div>
-                <div class="font-mono text-[11px] text-slate-400 dark:text-slate-500 border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 flex items-center">${res.lineNum}</div>
-                <div class="text-[11px] font-semibold text-slate-700 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 flex items-center">ទំព័រទី ${res.pageNum}</div>
+                <div class="border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-1 flex flex-col justify-center">
+                    <span class="font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">${res.id}</span>
+                    <span class="text-[9px] text-blue-600 dark:text-blue-400 font-semibold">ទំព័រ ${res.pageNum}</span>
+                </div>
+                <div class="border-r border-slate-100 dark:border-slate-800/80 pr-2 pt-2 flex items-center overflow-hidden">
+                    <span class="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/70 text-indigo-600 dark:text-indigo-400 rounded-md font-mono text-[10px] font-bold tracking-tight select-all truncate" title="កូអរដោណេពិតប្រាកដ [ymin, xmin, ymax, xmax] (0-1000 scale)">${coordStr}</span>
+                </div>
                 <div class="border-r border-slate-100 dark:border-slate-800/80 pr-4 flex items-start w-full">
                     <textarea class="ocr-text-input w-full min-h-[30px] bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/80 focus:border-brand-500 focus:bg-white dark:focus:bg-slate-900 rounded-lg px-2.5 py-1.5 text-xs leading-normal text-slate-800 dark:text-slate-100 font-medium transition focus:outline-none resize-none overflow-hidden" rows="${estTextRows}" placeholder="Original text...">${res.lineText || ''}</textarea>
                 </div>
