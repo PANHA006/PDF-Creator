@@ -652,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
         activePdfFile = item;
         currentPdfBlob = item.blob;
         
-        renderPdfViewport(item.blob);
+        renderPdfViewport(item.blob, item.name);
         
         const activePdfInfo = document.getElementById('active-pdf-info');
         const activePdfName = document.getElementById('active-pdf-name');
@@ -808,25 +808,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
     // -------------------------------------------------------------
-    // Word Document / Manga Live Editor State & Controls
+    // Direct DOCX & Document Viewer State & Controls (Read-Only)
     // -------------------------------------------------------------
     let currentDocPages = [];
     let currentDocPageIndex = 0;
     let docZoomLevel = 100;
     let isDocFitWidth = true;
     let isContinuousScroll = true; // Default: Webtoon Continuous Vertical Scroll
-
-    // Word Editor Ribbon State
-    let editorCurrentShape = "rounded";
-    let editorCurrentFont = "'Khmer OS Content', sans-serif";
-    let editorCurrentSize = "18";
-    let editorIsBold = false;
-    let editorCurrentAlign = "center";
-    let editorCurrentColor = "#0f172a";
-    let editorCurrentBgColor = "#ffffff";
-    let editorHasBubbleBg = true;
-    let selectedBubbleItem = null;
 
     const btnZoomIn = document.getElementById('zoom-in');
     const btnZoomOut = document.getElementById('zoom-out');
@@ -837,18 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentPageNumSpan = document.getElementById('current-page-num');
     const totalPagesNumSpan = document.getElementById('total-pages-num');
     const btnScrollMode = document.getElementById('btn-scroll-mode');
-    const scrollModeLabel = document.getElementById('scroll-mode-label');
-
-    const editorShapeSelect = document.getElementById('editor-shape-select');
-    const editorFontFamily = document.getElementById('editor-font-family');
-    const editorFontSize = document.getElementById('editor-font-size');
-    const editorBtnBold = document.getElementById('editor-btn-bold');
-    const editorTextAlign = document.getElementById('editor-text-align');
-    const editorTextColor = document.getElementById('editor-text-color');
-    const editorBgColor = document.getElementById('editor-bg-color');
-    const editorBtnBubbleBg = document.getElementById('editor-btn-bubble-bg');
-    const editorBtnAddText = document.getElementById('editor-btn-add-text');
-    const editorBtnDownloadDocx = document.getElementById('editor-btn-download-docx');
+    const docActiveTitle = document.getElementById('doc-active-title');
 
     function updateWordViewerControls() {
         const total = currentDocPages.length;
@@ -865,7 +844,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (totalPagesNumSpan) totalPagesNumSpan.textContent = total;
         if (btnPrevPage) btnPrevPage.disabled = (currentDocPageIndex <= 0);
         if (btnNextPage) btnNextPage.disabled = (currentDocPageIndex >= total - 1);
-        if (zoomValText) zoomValText.textContent = isDocFitWidth ? 'Fit' : `${docZoomLevel}%`;
+        if (zoomValText) zoomValText.textContent = `${docZoomLevel}%`;
+
+        if (btnZoomFit) {
+            if (isDocFitWidth) {
+                btnZoomFit.classList.add('text-blue-600', 'dark:text-blue-400', 'bg-white', 'dark:bg-slate-700', 'shadow-xs');
+            } else {
+                btnZoomFit.classList.remove('text-blue-600', 'dark:text-blue-400', 'bg-white', 'dark:bg-slate-700', 'shadow-xs');
+            }
+        }
 
         // Update OCR page selector to sync with current viewed page
         if (ocrPageSelect) {
@@ -874,13 +861,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let isNavigating = false;
+
     function updateScrollModeButtonUI() {
         if (!btnScrollMode) return;
         if (isContinuousScroll) {
-            btnScrollMode.innerHTML = `<i data-lucide="scroll" class="w-3.5 h-3.5 text-blue-500"></i> <span id="scroll-mode-label">Webtoon (រមូរ)</span>`;
+            btnScrollMode.innerHTML = `<i data-lucide="scroll" class="w-3.5 h-3.5 text-blue-500"></i> <span id="scroll-mode-label">Webtoon</span>`;
             btnScrollMode.classList.add('bg-blue-50', 'dark:bg-blue-950/40', 'border-blue-300', 'text-blue-600');
         } else {
-            btnScrollMode.innerHTML = `<i data-lucide="file" class="w-3.5 h-3.5 text-slate-500"></i> <span id="scroll-mode-label">ទំព័រទោល (Page)</span>`;
+            btnScrollMode.innerHTML = `<i data-lucide="file" class="w-3.5 h-3.5 text-slate-500"></i> <span id="scroll-mode-label">ទំព័រទោល</span>`;
             btnScrollMode.classList.remove('bg-blue-50', 'dark:bg-blue-950/40', 'border-blue-300', 'text-blue-600');
         }
         lucide.createIcons();
@@ -896,281 +885,71 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-
-    function applyShapeStyles(bubble, shape, hasBg, customBgColor = null) {
-        const bgColor = customBgColor || editorCurrentBgColor || "#ffffff";
-
-        if (shape === 'oval') {
-            bubble.style.borderRadius = "50% / 50%";
-            bubble.style.padding = "14px 18px";
-        } else if (shape === 'rect') {
-            bubble.style.borderRadius = "4px";
-            bubble.style.padding = "8px 10px";
-        } else if (shape === 'cloud') {
-            bubble.style.borderRadius = "24px 24px 20px 20px";
-            bubble.style.padding = "12px 16px";
-        } else if (shape === 'transparent') {
-            bubble.style.borderRadius = "6px";
-            bubble.style.padding = "6px 8px";
-            bubble.style.backgroundColor = "transparent";
-            bubble.style.borderColor = "transparent";
-            bubble.style.boxShadow = "none";
-            return;
-        } else {
-            // Default: rounded
-            bubble.style.borderRadius = "18px";
-            bubble.style.padding = "8px 14px";
+    async function extractImagesFromDocxBlob(docxBlob) {
+        if (!window.JSZip) {
+            throw new Error('JSZip library not available');
         }
+        const zip = await JSZip.loadAsync(docxBlob);
+        let orderedMediaFiles = [];
 
-        if (hasBg !== false) {
-            bubble.style.backgroundColor = bgColor;
-            bubble.style.borderColor = "transparent";
-            bubble.style.boxShadow = "none";
-        } else {
-            bubble.style.backgroundColor = "transparent";
-            bubble.style.borderColor = "transparent";
-            bubble.style.boxShadow = "none";
-        }
-    }
-
-    function createBubbleElement(item, itemIdx, sheet, pageNum) {
-        const bubble = document.createElement('div');
-        bubble.className = "word-editor-bubble absolute border border-transparent hover:border-blue-400/40 transition-all group flex items-center justify-center cursor-move";
-        
-        // Positioning from box_2d or auto offset
-        let topPct = 15 + (itemIdx * 14);
-        let leftPct = 15;
-        let widthPct = 60;
-        let heightPct = 10;
-
-        if (item.box_2d && Array.isArray(item.box_2d) && item.box_2d.length === 4) {
-            const [ymin, xmin, ymax, xmax] = item.box_2d;
-            topPct = (ymin / 10);
-            leftPct = (xmin / 10);
-            widthPct = Math.max(15, (xmax - xmin) / 10);
-            heightPct = Math.max(6, (ymax - ymin) / 10);
-        }
-
-        bubble.style.top = `${Math.min(88, Math.max(1, topPct))}%`;
-        bubble.style.left = `${Math.min(85, Math.max(1, leftPct))}%`;
-        bubble.style.width = `${Math.min(96, widthPct)}%`;
-        bubble.style.minHeight = `${Math.min(90, heightPct)}%`;
-
-        const currentShape = item.shape || editorCurrentShape || "rounded";
-        const currentHasBg = (item.hasBg !== undefined) ? item.hasBg : true;
-        const currentBgColor = item.bgColor || editorCurrentBgColor || "#ffffff";
-        applyShapeStyles(bubble, currentShape, currentHasBg, currentBgColor);
-
-        if (selectedBubbleItem === item) {
-            bubble.classList.add('ring-2', 'ring-blue-500');
-        }
-
-        // Top Drag Handle
-        const dragHandle = document.createElement('div');
-        dragHandle.className = "bubble-drag-handle absolute -top-2.5 -left-2.5 w-5 h-5 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-grab active:cursor-grabbing z-20";
-        dragHandle.innerHTML = `<i data-lucide="move" class="w-3 h-3"></i>`;
-
-        // Delete Bubble Button
-        const delBtn = document.createElement('div');
-        delBtn.className = "bubble-del-btn absolute -top-2.5 -right-2.5 w-5 h-5 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition shadow-md cursor-pointer z-20";
-        delBtn.innerHTML = `✕`;
-        delBtn.title = "លុបប្រអប់អក្សរនេះ";
-        delBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const targetIdx = ocrResults.indexOf(item);
-            if (targetIdx > -1) {
-                ocrResults.splice(targetIdx, 1);
-                selectedBubbleItem = null;
-                renderWordDocViewer(true);
-                renderOcrTable();
+        // 1. Build Relationship map from word/_rels/document.xml.rels
+        const relsMap = {};
+        const relsFile = zip.file('word/_rels/document.xml.rels');
+        if (relsFile) {
+            const relsXml = await relsFile.async('text');
+            const relMatches = relsXml.matchAll(/<Relationship\s+[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g);
+            for (const match of relMatches) {
+                const id = match[1];
+                let target = match[2];
+                if (!target.toLowerCase().startsWith('word/')) {
+                    target = 'word/' + target.replace(/^\//, '');
+                }
+                relsMap[id] = target;
             }
-        });
-
-        // Resizing Handles (Bottom-Right, Bottom-Left, Right Edge, Bottom Edge)
-        const resizeSE = document.createElement('div');
-        resizeSE.className = "absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-se-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
-
-        const resizeSW = document.createElement('div');
-        resizeSW.className = "absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize opacity-0 group-hover:opacity-100 transition shadow z-20";
-
-        const resizeE = document.createElement('div');
-        resizeE.className = "absolute top-1/2 -right-1.5 -translate-y-1/2 w-2.5 h-5 bg-blue-500 rounded-sm cursor-e-resize opacity-0 group-hover:opacity-100 transition z-20";
-
-        const resizeS = document.createElement('div');
-        resizeS.className = "absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-2.5 bg-blue-500 rounded-sm cursor-s-resize opacity-0 group-hover:opacity-100 transition z-20";
-
-        // Editable text inside shape
-        const textSpan = document.createElement('div');
-        textSpan.contentEditable = "true";
-        textSpan.className = "bubble-text-content w-full h-full outline-none select-text leading-relaxed flex items-center justify-center";
-        textSpan.style.textAlign = item.textAlign || editorCurrentAlign || "center";
-        textSpan.style.fontFamily = item.fontFamily || editorCurrentFont || "'Khmer OS Content', sans-serif";
-        textSpan.style.fontSize = `${item.fontSize || editorCurrentSize || "18"}px`;
-        textSpan.style.fontWeight = (item.isBold !== undefined ? item.isBold : editorIsBold) ? "bold" : "normal";
-        textSpan.style.color = item.color || editorCurrentColor || "#0f172a";
-
-        // Solid White Text line background with NO shadow and NO border
-        const lineBgColor = item.bgColor || editorCurrentBgColor || "#ffffff";
-        textSpan.style.backgroundColor = lineBgColor;
-        textSpan.style.borderRadius = "6px";
-        textSpan.style.padding = "6px 12px";
-        textSpan.style.boxShadow = "none";
-        textSpan.style.border = "none";
-
-        textSpan.innerText = item.transText || item.khmer_translation || item.lineText || item.original_text || 'វាយអក្សរខ្មែរ...';
-
-        // Click selection
-        bubble.addEventListener('click', (e) => {
-            selectedBubbleItem = item;
-            if (item.shape && editorShapeSelect) editorShapeSelect.value = item.shape;
-            if (item.fontSize && editorFontSize) editorFontSize.value = item.fontSize;
-            if (item.fontFamily && editorFontFamily) editorFontFamily.value = item.fontFamily;
-            if (item.textAlign && editorTextAlign) editorTextAlign.value = item.textAlign;
-            if (item.color && editorTextColor) editorTextColor.value = item.color;
-            if (item.bgColor && editorBgColor) editorBgColor.value = item.bgColor;
-        });
-
-        // Real-time two-way synchronization: updating on text input
-        textSpan.addEventListener('input', () => {
-            item.transText = textSpan.innerText;
-            item.khmer_translation = textSpan.innerText;
-            renderOcrTable();
-        });
-
-        // Resizing mechanics (Corner SE & SW & E & S handles)
-        const initResize = (e, dir) => {
-            e.stopPropagation();
-            e.preventDefault();
-            const rect = sheet.getBoundingClientRect();
-            const initialW = bubble.offsetWidth;
-            const initialH = bubble.offsetHeight;
-            const startX = e.clientX;
-            const startY = e.clientY;
-
-            const onResizeMove = (moveEvt) => {
-                const dx = moveEvt.clientX - startX;
-                const dy = moveEvt.clientY - startY;
-                let newW = initialW;
-                let newH = initialH;
-
-                if (dir.includes('e')) newW = Math.max(40, initialW + dx);
-                if (dir.includes('w')) newW = Math.max(40, initialW - dx);
-                if (dir.includes('s')) newH = Math.max(20, initialH + dy);
-
-                const newWPct = (newW / rect.width) * 100;
-                const newHPct = (newH / rect.height) * 100;
-
-                bubble.style.width = `${Math.min(99, Math.max(4, newWPct))}%`;
-                bubble.style.minHeight = `${Math.min(99, Math.max(2, newHPct))}%`;
-
-                const currentLeft = (bubble.offsetLeft / rect.width) * 100;
-                const currentTop = (bubble.offsetTop / rect.height) * 100;
-
-                if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
-                item.box_2d[0] = Math.round(currentTop * 10);
-                item.box_2d[1] = Math.round(currentLeft * 10);
-                item.box_2d[2] = Math.round((currentTop + newHPct) * 10);
-                item.box_2d[3] = Math.round((currentLeft + newWPct) * 10);
-            };
-
-            const onResizeUp = () => {
-                document.removeEventListener('mousemove', onResizeMove);
-                document.removeEventListener('mouseup', onResizeUp);
-                saveOcrResults();
-                renderOcrTable();
-            };
-
-            document.addEventListener('mousemove', onResizeMove);
-            document.addEventListener('mouseup', onResizeUp);
-        };
-
-        resizeSE.addEventListener('mousedown', (e) => initResize(e, 'se'));
-        resizeSW.addEventListener('mousedown', (e) => initResize(e, 'sw'));
-        resizeE.addEventListener('mousedown', (e) => initResize(e, 'e'));
-        resizeS.addEventListener('mousedown', (e) => initResize(e, 's'));
-
-        // Dragging mechanics with unrestricted movement across the entire page (Top to Footer / Bottom)
-        let isDragging = false;
-
-        const onMouseDown = (e) => {
-            if (e.target === textSpan && textSpan.isContentEditable && document.activeElement === textSpan) return;
-            if (e.target === delBtn || e.target === resizeSE || e.target === resizeSW || e.target === resizeE || e.target === resizeS) return;
-            isDragging = true;
-            
-            const bubbleRect = bubble.getBoundingClientRect();
-            const grabOffsetX = e.clientX - bubbleRect.left;
-            const grabOffsetY = e.clientY - bubbleRect.top;
-
-            bubble.style.zIndex = "100";
-            selectedBubbleItem = item;
-            e.preventDefault();
-
-            const onMouseMove = (moveEvt) => {
-                if (!isDragging) return;
-                const currentSheetRect = sheet.getBoundingClientRect();
-                
-                // Calculate position relative to the sheet, taking scroll & zoom into account
-                const mouseXInSheet = moveEvt.clientX - currentSheetRect.left - grabOffsetX;
-                const mouseYInSheet = moveEvt.clientY - currentSheetRect.top - grabOffsetY;
-
-                const leftPctNow = (mouseXInSheet / currentSheetRect.width) * 100;
-                const topPctNow = (mouseYInSheet / currentSheetRect.height) * 100;
-                const widthPctNow = (bubble.offsetWidth / currentSheetRect.width) * 100;
-                const heightPctNow = (bubble.offsetHeight / currentSheetRect.height) * 100;
-
-                // Allow free movement from 0% all the way to 99% (bottom/footer of page)
-                const clampLeft = Math.min(99, Math.max(0, leftPctNow));
-                const clampTop = Math.min(99, Math.max(0, topPctNow));
-
-                bubble.style.left = `${clampLeft}%`;
-                bubble.style.top = `${clampTop}%`;
-
-                // Update box_2d in data model
-                if (!item.box_2d) item.box_2d = [0, 0, 0, 0];
-                item.box_2d[0] = Math.round(clampTop * 10);
-                item.box_2d[1] = Math.round(clampLeft * 10);
-                item.box_2d[2] = Math.round((clampTop + heightPctNow) * 10);
-                item.box_2d[3] = Math.round((clampLeft + widthPctNow) * 10);
-            };
-
-            const onMouseUp = () => {
-                isDragging = false;
-                bubble.style.zIndex = "10";
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-                saveOcrResults();
-                renderOcrTable();
-            };
-
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-        };
-
-        bubble.addEventListener('mousedown', onMouseDown);
-
-        bubble.appendChild(dragHandle);
-        bubble.appendChild(delBtn);
-        bubble.appendChild(resizeSE);
-        bubble.appendChild(resizeSW);
-        bubble.appendChild(resizeE);
-        bubble.appendChild(resizeS);
-        bubble.appendChild(textSpan);
-
-        return bubble;
-    }
-
-    function scrollToPage(pageIndex) {
-        if (!currentDocPages || currentDocPages.length === 0) return;
-        currentDocPageIndex = Math.max(0, Math.min(currentDocPages.length - 1, pageIndex));
-        if (isContinuousScroll) {
-            const targetSheet = document.getElementById(`word-page-sheet-${currentDocPageIndex + 1}`);
-            if (targetSheet) {
-                targetSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-            updateWordViewerControls();
-        } else {
-            renderWordDocViewer(false);
         }
+
+        // 2. Extract in strict sequential page order from word/document.xml
+        const docFile = zip.file('word/document.xml');
+        if (docFile) {
+            const docXml = await docFile.async('text');
+            const embedMatches = docXml.matchAll(/r:embed="([^"]+)"/g);
+            for (const match of embedMatches) {
+                const rId = match[1];
+                const target = relsMap[rId];
+                if (target && zip.files[target] && !orderedMediaFiles.includes(target)) {
+                    orderedMediaFiles.push(target);
+                }
+            }
+        }
+
+        // 3. Fallback if document.xml didn't provide embed relationships
+        if (orderedMediaFiles.length === 0) {
+            orderedMediaFiles = Object.keys(zip.files).filter(f => f.toLowerCase().startsWith('word/media/') && !zip.files[f].dir);
+            orderedMediaFiles.sort((a, b) => {
+                const numA = parseInt((a.replace(/\D/g, '') || '0'), 10);
+                const numB = parseInt((b.replace(/\D/g, '') || '0'), 10);
+                return numA - numB;
+            });
+        }
+
+        const pages = [];
+        for (let i = 0; i < orderedMediaFiles.length; i++) {
+            const file = zip.files[orderedMediaFiles[i]];
+            if (!file) continue;
+            const base64 = await file.async('base64');
+            const ext = file.name.split('.').pop().toLowerCase();
+            let mime = 'image/jpeg';
+            if (ext === 'png') mime = 'image/png';
+            else if (ext === 'webp') mime = 'image/webp';
+            else if (ext === 'gif') mime = 'image/gif';
+
+            pages.push({
+                pageNum: i + 1,
+                name: file.name,
+                dataUrl: `data:${mime};base64,${base64}`
+            });
+        }
+        return pages;
     }
 
     function renderWordDocViewer(preserveScroll = true) {
@@ -1187,9 +966,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!currentDocPages || currentDocPages.length === 0) {
             pdfViewport.innerHTML = `
                 <div id="pdf-empty-preview" class="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-6 text-center">
-                    <i data-lucide="edit" class="w-12 h-12 mb-3 stroke-1 opacity-60"></i>
+                    <i data-lucide="file-text" class="w-12 h-12 mb-3 stroke-1 opacity-60"></i>
                     <h3 class="text-xs font-semibold text-slate-700 dark:text-slate-300">មិនទាន់មានការជ្រើសរើស</h3>
-                    <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs">សូមជ្រើសរើសឯកសារ Word (.docx) ឬ Manga ពីបញ្ជីខាងស្តាំ ដើម្បីកែសម្រួលនៅទីនេះ</p>
+                    <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs">សូមជ្រើសរើសឯកសារ Word (.docx) ឬ Manga ពីបញ្ជីខាងស្តាំ ដើម្បីមើលទំព័រនៅទីនេះ</p>
                 </div>
             `;
             updateWordViewerControls();
@@ -1199,16 +978,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (isContinuousScroll) {
-            // WEBTOON / CONTINUOUS VERTICAL SCROLL MODE (All 20 Pages vertically stacked)
+            // WEBTOON / CONTINUOUS VERTICAL SCROLL MODE (Clean Read-Only Visual Preview)
             const container = document.createElement('div');
-            container.className = "word-editor-scroll-container w-full h-full overflow-y-auto flex flex-col items-center gap-6 p-4 custom-scrollbar bg-slate-200/70 dark:bg-slate-950/80";
+            container.className = "word-editor-scroll-container w-full h-full overflow-y-auto flex flex-col items-center gap-4 p-4 custom-scrollbar bg-slate-200/70 dark:bg-slate-950/80";
 
             currentDocPages.forEach((pageObj, pIdx) => {
                 const pageNum = pIdx + 1;
                 const sheet = document.createElement('div');
                 sheet.id = `word-page-sheet-${pageNum}`;
                 sheet.dataset.pageIndex = pIdx;
-                sheet.className = "word-page-sheet bg-white dark:bg-slate-900 shadow-2xl rounded-sm border border-slate-300/80 dark:border-slate-800 transition-all duration-200 relative flex items-center justify-center overflow-hidden shrink-0 select-none";
+                sheet.className = "word-page-sheet bg-white dark:bg-slate-900 shadow-2xl rounded-sm border border-slate-300/80 dark:border-slate-800 transition-all duration-200 relative flex items-center justify-center overflow-hidden shrink-0 select-none cursor-pointer";
                 sheet.style.width = isDocFitWidth ? '100%' : `${docZoomLevel}%`;
                 sheet.style.maxWidth = isDocFitWidth ? '640px' : 'none';
 
@@ -1225,22 +1004,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 img.className = "w-full h-auto block select-none pointer-events-none";
                 sheet.appendChild(img);
 
-                // Overlay layer for interactive speech bubbles and text boxes
-                const overlay = document.createElement('div');
-                overlay.className = "word-editor-overlay absolute inset-0 w-full h-full pointer-events-auto";
-
-                const pageItems = ocrResults.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
-                pageItems.forEach((item, itemIdx) => {
-                    const bubble = createBubbleElement(item, itemIdx, sheet, pageNum);
-                    overlay.appendChild(bubble);
+                // Clicking on a sheet updates active page
+                sheet.addEventListener('click', () => {
+                    currentDocPageIndex = pIdx;
+                    updateWordViewerControls();
                 });
 
-                sheet.appendChild(overlay);
                 container.appendChild(sheet);
             });
 
             // IntersectionObserver to dynamically detect which page is in view while scrolling
             const observer = new IntersectionObserver((entries) => {
+                if (isNavigating) return;
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         const idx = parseInt(entry.target.dataset.pageIndex, 10);
@@ -1262,7 +1037,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 container.scrollTop = prevScrollTop;
             }
         } else {
-            // SINGLE PAGE VIEW MODE
+            // SINGLE PAGE VIEW MODE (Clean Read-Only Visual Preview)
             const curPage = currentDocPages[currentDocPageIndex];
             if (!curPage) return;
 
@@ -1282,18 +1057,6 @@ document.addEventListener('DOMContentLoaded', () => {
             img.className = "w-full h-auto block select-none pointer-events-none";
             sheet.appendChild(img);
 
-            const overlay = document.createElement('div');
-            overlay.className = "word-editor-overlay absolute inset-0 w-full h-full pointer-events-auto";
-
-            const pageNum = currentDocPageIndex + 1;
-            const pageItems = ocrResults.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
-
-            pageItems.forEach((item, itemIdx) => {
-                const bubble = createBubbleElement(item, itemIdx, sheet, pageNum);
-                overlay.appendChild(bubble);
-            });
-
-            sheet.appendChild(overlay);
             container.appendChild(sheet);
             pdfViewport.appendChild(container);
         }
@@ -1303,219 +1066,49 @@ document.addEventListener('DOMContentLoaded', () => {
         lucide.createIcons();
     }
 
-    // Ribbon Controls Event Listeners
-    if (editorShapeSelect) {
-        editorShapeSelect.addEventListener('change', () => {
-            editorCurrentShape = editorShapeSelect.value;
-            if (selectedBubbleItem) {
-                selectedBubbleItem.shape = editorCurrentShape;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorFontFamily) {
-        editorFontFamily.addEventListener('change', () => {
-            editorCurrentFont = editorFontFamily.value;
-            if (selectedBubbleItem) {
-                selectedBubbleItem.fontFamily = editorCurrentFont;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorFontSize) {
-        editorFontSize.addEventListener('change', () => {
-            editorCurrentSize = editorFontSize.value;
-            if (selectedBubbleItem) {
-                selectedBubbleItem.fontSize = editorCurrentSize;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorTextAlign) {
-        editorTextAlign.addEventListener('change', () => {
-            editorCurrentAlign = editorTextAlign.value;
-            if (selectedBubbleItem) {
-                selectedBubbleItem.textAlign = editorCurrentAlign;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorBtnBold) {
-        editorBtnBold.addEventListener('click', () => {
-            editorIsBold = !editorIsBold;
-            editorBtnBold.classList.toggle('bg-blue-600', editorIsBold);
-            editorBtnBold.classList.toggle('text-white', editorIsBold);
-            if (selectedBubbleItem) {
-                selectedBubbleItem.isBold = editorIsBold;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorTextColor) {
-        editorTextColor.addEventListener('input', () => {
-            editorCurrentColor = editorTextColor.value;
-            if (selectedBubbleItem) {
-                selectedBubbleItem.color = editorCurrentColor;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorBgColor) {
-        editorBgColor.addEventListener('input', () => {
-            editorCurrentBgColor = editorBgColor.value;
-            editorHasBubbleBg = true;
-            if (editorBtnBubbleBg) {
-                editorBtnBubbleBg.classList.add('bg-blue-50', 'border-blue-400');
-            }
-            if (selectedBubbleItem) {
-                selectedBubbleItem.bgColor = editorCurrentBgColor;
-                selectedBubbleItem.hasBg = true;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorBtnBubbleBg) {
-        editorBtnBubbleBg.addEventListener('click', () => {
-            editorHasBubbleBg = !editorHasBubbleBg;
-            editorBtnBubbleBg.classList.toggle('bg-blue-50', editorHasBubbleBg);
-            editorBtnBubbleBg.classList.toggle('border-blue-400', editorHasBubbleBg);
-            if (selectedBubbleItem) {
-                selectedBubbleItem.hasBg = editorHasBubbleBg;
-            }
-            saveOcrResults();
-            renderWordDocViewer(true);
-        });
-    }
-
-    if (editorBtnAddText) {
-        editorBtnAddText.addEventListener('click', () => {
-            if (currentDocPages.length === 0) {
-                alert('⚠️ សូមជ្រើសរើសឯកសារ Word ឬ Manga មួយជាមុនសិន!');
-                return;
-            }
-            const pageNum = currentDocPageIndex + 1;
-            const newItem = {
-                id: `T-${pageNum}-${Date.now().toString().slice(-4)}`,
-                pageNum: pageNum,
-                lineText: 'New Dialogue',
-                transText: 'វាយអត្ថបទខ្មែរនៅទីនេះ...',
-                shape: editorCurrentShape,
-                fontSize: editorCurrentSize,
-                fontFamily: editorCurrentFont,
-                textAlign: editorCurrentAlign,
-                isBold: editorIsBold,
-                color: editorCurrentColor,
-                box_2d: [350, 200, 480, 800]
-            };
-            ocrResults.push(newItem);
-            selectedBubbleItem = newItem;
-            renderWordDocViewer(true);
-            renderOcrTable();
-        });
-    }
-
-    if (editorBtnDownloadDocx) {
-        editorBtnDownloadDocx.addEventListener('click', async () => {
-            if ((!currentDocPages || currentDocPages.length === 0) && (!images || images.length === 0) && !currentPdfBlob) {
-                alert('⚠️ មិនទាន់មានទំព័រ ឬរូបភាពដើម្បីទាញយកជា Word (.docx) ឡើយ!');
-                return;
-            }
-
-            const origHtml = editorBtnDownloadDocx.innerHTML;
-            editorBtnDownloadDocx.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> កំពុងទាញយក...`;
-            editorBtnDownloadDocx.disabled = true;
-
-            try {
-                const formData = new FormData();
-                if (currentDocPages && currentDocPages.length > 0) {
-                    for (let idx = 0; idx < currentDocPages.length; idx++) {
-                        const p = currentDocPages[idx];
-                        if (p.dataUrl) {
-                            const resBlob = await fetch(p.dataUrl).then(r => r.blob());
-                            formData.append('images', resBlob, `page_${idx + 1}.jpg`);
-                        }
-                    }
-                } else if (images && images.length > 0) {
-                    images.forEach((img, idx) => {
-                        formData.append('images', img.file, img.file.name || `page_${idx + 1}.png`);
-                    });
-                } else if (currentPdfBlob) {
-                    formData.append('images', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
-                }
-
-                formData.append('ocr_items', JSON.stringify(ocrResults || []));
-                const baseName = (activePdfFile && activePdfFile.name) ? activePdfFile.name.replace(/\.[^/.]+$/, '') : (pdfFilename.value || 'manga_document');
-                formData.append('title', baseName);
-
-                const res = await fetch('/api/generate-docx', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (!res.ok) {
-                    throw new Error(`Server error: ${res.status}`);
-                }
-
-                const docxBlob = await res.blob();
-                const url = URL.createObjectURL(docxBlob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${baseName}.docx`;
-                document.body.appendChild(a);
-                a.click();
-                URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-
-                logActivityEntry({
-                    type: 'doc',
-                    title: `ទាញយកជា Word៖ ${baseName}.docx`,
-                    subtitle: `ឯកសារ Microsoft Word (.docx)`,
-                    details: `ទំព័រសរុប ${currentDocPages ? currentDocPages.length : 1} ទំព័រ`
-                });
-            } catch (err) {
-                console.error('Error generating DOCX:', err);
-                alert('មានបញ្ហាក្នុងការទាញយកជា Word (.docx)៖ ' + err.message);
-            } finally {
-                editorBtnDownloadDocx.innerHTML = origHtml;
-                editorBtnDownloadDocx.disabled = false;
-                lucide.createIcons();
-            }
-        });
-    }
-
-    async function renderPdfViewport(pdfBlob) {
-        if (!pdfBlob) {
+    async function renderPdfViewport(blob, docName = '') {
+        if (!blob) {
             currentDocPages = [];
             currentDocPageIndex = 0;
+            if (docActiveTitle) docActiveTitle.textContent = '';
             renderWordDocViewer(false);
             return;
+        }
+
+        if (docActiveTitle && docName) {
+            docActiveTitle.textContent = docName;
         }
 
         pdfViewport.innerHTML = `
             <div class="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-400 gap-3">
                 <i data-lucide="loader" class="w-8 h-8 animate-spin text-brand-500"></i>
-                <p class="text-xs font-bold text-slate-600 dark:text-slate-400">កំពុងផ្ទុកទំព័រឯកសារ Word Editor...</p>
+                <p class="text-xs font-bold text-slate-600 dark:text-slate-400">កំពុងផ្ទុកទំព័រឯកសារ...</p>
             </div>
         `;
         lucide.createIcons();
 
+        // 1. Check if the file is a Word .docx file (Direct Instant Client-Side Extraction)
+        const isDocx = (docName && docName.toLowerCase().endsWith('.docx')) ||
+                       (blob.type && blob.type.includes('wordprocessingml'));
+
+        if (isDocx) {
+            try {
+                const docxPages = await extractImagesFromDocxBlob(blob);
+                if (docxPages && docxPages.length > 0) {
+                    currentDocPages = docxPages;
+                    currentDocPageIndex = 0;
+                    renderWordDocViewer(false);
+                    return;
+                }
+            } catch (docxErr) {
+                console.warn('DOCX direct client extraction failed, falling back to server renderer:', docxErr.message);
+            }
+        }
+
+        // 2. Standard PDF rendering via server
         try {
             const formData = new FormData();
-            formData.append('file', pdfBlob, 'document.pdf');
+            formData.append('file', blob, docName || 'document.pdf');
 
             const res = await fetch('/api/upload-pdf', {
                 method: 'POST',
@@ -1536,9 +1129,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function scrollToPage(pageIndex) {
+        if (!currentDocPages || currentDocPages.length === 0) return;
+        currentDocPageIndex = Math.max(0, Math.min(currentDocPages.length - 1, pageIndex));
+        
+        if (isContinuousScroll) {
+            const container = pdfViewport.querySelector('.word-editor-scroll-container');
+            const targetSheet = document.getElementById(`word-page-sheet-${currentDocPageIndex + 1}`);
+            if (container && targetSheet) {
+                isNavigating = true;
+                const targetScrollTop = targetSheet.offsetTop - container.offsetTop - 12;
+                container.scrollTo({
+                    top: targetScrollTop,
+                    behavior: 'smooth'
+                });
+                setTimeout(() => { isNavigating = false; }, 500);
+            }
+            updateWordViewerControls();
+        } else {
+            renderWordDocViewer(false);
+        }
+    }
+
     // Zoom & Page Navigation Listeners
     if (btnPrevPage) {
-        btnPrevPage.addEventListener('click', () => {
+        btnPrevPage.addEventListener('click', (e) => {
+            e.preventDefault();
             if (currentDocPageIndex > 0) {
                 scrollToPage(currentDocPageIndex - 1);
             }
@@ -1546,7 +1162,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (btnNextPage) {
-        btnNextPage.addEventListener('click', () => {
+        btnNextPage.addEventListener('click', (e) => {
+            e.preventDefault();
             if (currentDocPageIndex < currentDocPages.length - 1) {
                 scrollToPage(currentDocPageIndex + 1);
             }
@@ -1608,7 +1225,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function updateOcrPageSelectOptions() {
         ocrPageSelect.innerHTML = '';
-        if (images.length === 0 && !currentPdfBlob) {
+        if ((!currentDocPages || currentDocPages.length === 0) && images.length === 0 && !currentPdfBlob) {
             const opt = document.createElement('option');
             opt.value = 'none';
             opt.textContent = 'គ្មានទំព័ររូបភាព';
@@ -1621,47 +1238,57 @@ document.addEventListener('DOMContentLoaded', () => {
         ocrPageSelect.disabled = false;
         btnScan.disabled = false;
 
-        // If we have images, populate page selector
-        if (images.length > 0) {
-            // Add 'current page' option
+        // 1. If we have active viewed pages from DOCX or PDF
+        if (currentDocPages && currentDocPages.length > 0) {
             const optCurrent = document.createElement('option');
             optCurrent.value = 'current';
-            optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentPage})`;
+            optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentDocPageIndex + 1})`;
             ocrPageSelect.appendChild(optCurrent);
 
-            // Add 'all pages' option
             const optAll = document.createElement('option');
             optAll.value = 'all';
             optAll.textContent = 'គ្រប់ទំព័រទាំងអស់';
             ocrPageSelect.appendChild(optAll);
 
-            // Add options for individual pages
-            images.forEach((img, idx) => {
+            currentDocPages.forEach((_, idx) => {
+                const opt = document.createElement('option');
+                opt.value = idx + 1;
+                opt.textContent = `ទំព័រទី ${idx + 1}`;
+                ocrPageSelect.appendChild(opt);
+            });
+        } else if (images.length > 0) {
+            const optCurrent = document.createElement('option');
+            optCurrent.value = 'current';
+            optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentPage})`;
+            ocrPageSelect.appendChild(optCurrent);
+
+            const optAll = document.createElement('option');
+            optAll.value = 'all';
+            optAll.textContent = 'គ្រប់ទំព័រទាំងអស់';
+            ocrPageSelect.appendChild(optAll);
+
+            images.forEach((_, idx) => {
                 const opt = document.createElement('option');
                 opt.value = idx + 1;
                 opt.textContent = `ទំព័រទី ${idx + 1}`;
                 ocrPageSelect.appendChild(opt);
             });
         } else if (currentPdfBlob) {
-            // Deduce the number of pages from ocrResults if possible
             let maxPage = 1;
             ocrResults.forEach(r => {
                 if (r.pageNum > maxPage) maxPage = r.pageNum;
             });
 
-            // Add 'current page' option
             const optCurrent = document.createElement('option');
             optCurrent.value = 'current';
-            optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentPage})`;
+            optCurrent.textContent = `ទំព័របច្ចុប្បន្ន (${currentDocPageIndex + 1})`;
             ocrPageSelect.appendChild(optCurrent);
 
-            // Add 'all pages' option
             const optAll = document.createElement('option');
             optAll.value = 'all';
             optAll.textContent = 'គ្រប់ទំព័រទាំងអស់';
             ocrPageSelect.appendChild(optAll);
 
-            // Add individual pages based on maxPage
             for (let idx = 1; idx <= maxPage; idx++) {
                 const opt = document.createElement('option');
                 opt.value = idx;
@@ -1674,7 +1301,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Handle Start Scan Button click
     btnScan.addEventListener('click', async () => {
         if (!currentPdfBlob) {
-            alert('⚠️ សូមជ្រើសរើសឯកសារ PDF មួយពី "បណ្ណាល័យ PDF (PDF Library)" ជាមុនសិន មុននឹងចាប់ផ្តើមស្កែន!\n(Please select a PDF file from the PDF Library first.)');
+            alert('⚠️ សូមជ្រើសរើសឯកសារ Word (.docx) ឬ PDF មួយពីបញ្ជីឯកសារជាមុនសិន មុននឹងចាប់ផ្តើមស្កែន!\n(Please select a Word or PDF file from the Document Library first.)');
             switchTab('organize');
             return;
         }
@@ -3394,41 +3021,14 @@ document.addEventListener('DOMContentLoaded', () => {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            // Also import images to Manga Creator workspace
-            mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងបញ្ជូនទៅកាន់ Manga Creator...`;
-            lucide.createIcons();
+            // Save DOCX blob directly into IndexedDB library (Zero PDF generation overhead)
+            const docTitle = chapterEntries.length === 1 
+                ? `${currentMangaData.title} - Ch ${chapterEntries[0].chStr}.docx`
+                : `${currentMangaData.title} - ${chapterEntries.length} Chapters.docx`;
 
-            // Compile into PDF representation for Manga Creator preview & OCR
-            const pdfFormData = new FormData();
-            const metadataList = [];
-            
-            for (let i = 0; i < allImagesData.length; i++) {
-                const imgData = allImagesData[i];
-                const resImg = await fetch(imgData.dataUrl);
-                const imgBlob = await resImg.blob();
-                pdfFormData.append('images', imgBlob, imgData.name);
-                metadataList.push({ filename: imgData.name, rotation: 0 });
-            }
-            
-            pdfFormData.append('metadata', JSON.stringify(metadataList));
-            pdfFormData.append('page_size', 'original');
-            pdfFormData.append('quality', '0.92');
+            const createdDocId = await savePdfToDB(docTitle, blob);
 
-            const pdfGenRes = await fetch('/api/generate-pdf', {
-                method: 'POST',
-                body: pdfFormData
-            });
-
-            let createdDocId = null;
-            if (pdfGenRes.ok) {
-                const pdfBlob = await pdfGenRes.blob();
-                const docTitle = chapterEntries.length === 1 
-                    ? `${currentMangaData.title} - Ch ${chapterEntries[0].chStr}.docx`
-                    : `${currentMangaData.title} - ${chapterEntries.length} Chapters.docx`;
-                createdDocId = await savePdfToDB(docTitle, pdfBlob);
-            }
-
-            // Switch to Manga Creator view & OCR tab for step 3
+            // Switch to Manga Creator view & OCR tab for preview
             switchView('pdf-creator');
             switchTab('ocr');
             await loadAndRenderPdfGrid();

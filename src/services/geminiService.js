@@ -46,17 +46,46 @@ async function callGeminiApi(apiKey, payload) {
 }
 
 /**
- * Clean Markdown backticks from JSON string
+ * Parse and sanitize JSON returned by LLMs with auto-repair for common syntax issues
  */
-function cleanJsonMarkdown(text) {
+function parseJsonSafely(text) {
+  if (!text || typeof text !== 'string') return [];
   let clean = text.trim();
-  if (clean.startsWith('```')) {
-    const lines = clean.split('\n');
-    if (lines[0].startsWith('```')) lines.shift();
-    if (lines.length && lines[lines.length - 1].startsWith('```')) lines.pop();
-    clean = lines.join('\n').trim();
+
+  // Strip markdown code fences
+  clean = clean.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+  // Extract JSON array or object if surrounded by explanatory text
+  const firstArray = clean.indexOf('[');
+  const lastArray = clean.lastIndexOf(']');
+  if (firstArray !== -1 && lastArray !== -1 && lastArray > firstArray) {
+    clean = clean.slice(firstArray, lastArray + 1);
+  } else {
+    const firstObj = clean.indexOf('{');
+    const lastObj = clean.lastIndexOf('}');
+    if (firstObj !== -1 && lastObj !== -1 && lastObj > firstObj) {
+      clean = clean.slice(firstObj, lastObj + 1);
+    }
   }
-  return clean;
+
+  // Remove trailing commas before closing braces/brackets
+  clean = clean.replace(/,\s*([\]}])/g, '$1');
+
+  try {
+    return JSON.parse(clean);
+  } catch (err1) {
+    try {
+      // Auto-repair unquoted property names or single-quoted strings: e.g. { id: "1" } -> { "id": "1" }
+      const repaired = clean
+        .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+        .replace(/:\s*'([^']*)'/g, ':"$1"')
+        .replace(/,\s*([\]}])/g, '$1');
+      return JSON.parse(repaired);
+    } catch (err2) {
+      console.warn('[GeminiService] JSON parse repair failed. Original raw text:', text.slice(0, 300));
+      return [];
+    }
+  }
 }
 
 /**
@@ -164,8 +193,7 @@ Please respond ONLY with a JSON array matching this exact schema:
   }
 
   const rawText = candidates[0].content?.parts?.[0]?.text || '[]';
-  const cleanJson = cleanJsonMarkdown(rawText);
-  const blocks = JSON.parse(cleanJson);
+  const blocks = parseJsonSafely(rawText);
 
   const results = [];
   const cjkRegex = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
@@ -262,8 +290,7 @@ Please respond ONLY with a JSON array matching this exact schema:
   }
 
   const rawText = candidates[0].content?.parts?.[0]?.text || '[]';
-  const cleanJson = cleanJsonMarkdown(rawText);
-  return JSON.parse(cleanJson);
+  return parseJsonSafely(rawText);
 }
 
 module.exports = {

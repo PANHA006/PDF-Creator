@@ -4,6 +4,7 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const JSZip = require('jszip');
 
 const {
   generatePdfFromImages,
@@ -173,16 +174,78 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
     }
 
     const fileName = req.file.originalname || 'document.pdf';
+    const isDocx = fileName.toLowerCase().endsWith('.docx') ||
+                   (req.file.mimetype && req.file.mimetype.includes('wordprocessingml'));
+
     console.log('\n\x1b[36m' + '='.repeat(68) + '\x1b[0m');
     console.log(`⚡ \x1b[1m\x1b[33m[START SCAN & TRANSLATE]\x1b[0m ${new Date().toLocaleTimeString()}`);
     console.log(`📄 File: \x1b[32m${fileName}\x1b[0m (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
-    console.log(`🌐 Language: \x1b[35m${langOption}\x1b[0m | Target Pages: \x1b[36m${pagesOption}\x1b[0m | Mode: \x1b[34m${isMangaDirect ? 'Manga Direct' : 'Document PDF'}\x1b[0m`);
-    console.log('🔄 Rendering PDF pages to Vision images (150 DPI)...');
+    console.log(`🌐 Language: \x1b[35m${langOption}\x1b[0m | Target Pages: \x1b[36m${pagesOption}\x1b[0m | Format: \x1b[34m${isDocx ? 'Word (.docx)' : 'PDF (.pdf)'}\x1b[0m`);
 
     const renderStartTime = Date.now();
-    const allPages = await renderPdfPagesToImages(req.file.buffer, 150);
+    let allPages = [];
+
+    if (isDocx) {
+      console.log('🔄 Extracting images directly from Word .docx file (JSZip OpenXML)...');
+      const zip = await JSZip.loadAsync(req.file.buffer);
+      let orderedMediaFiles = [];
+
+      // 1. Build Relationship map from word/_rels/document.xml.rels
+      const relsMap = {};
+      const relsFile = zip.file('word/_rels/document.xml.rels');
+      if (relsFile) {
+        const relsXml = await relsFile.async('text');
+        const relMatches = relsXml.matchAll(/<Relationship\s+[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g);
+        for (const match of relMatches) {
+          const id = match[1];
+          let target = match[2];
+          if (!target.toLowerCase().startsWith('word/')) {
+            target = 'word/' + target.replace(/^\//, '');
+          }
+          relsMap[id] = target;
+        }
+      }
+
+      // 2. Extract in strict sequential page order from word/document.xml
+      const docFile = zip.file('word/document.xml');
+      if (docFile) {
+        const docXml = await docFile.async('text');
+        const embedMatches = docXml.matchAll(/r:embed="([^"]+)"/g);
+        for (const match of embedMatches) {
+          const rId = match[1];
+          const target = relsMap[rId];
+          if (target && zip.files[target] && !orderedMediaFiles.includes(target)) {
+            orderedMediaFiles.push(target);
+          }
+        }
+      }
+
+      // 3. Fallback if document.xml didn't provide embed relationships
+      if (orderedMediaFiles.length === 0) {
+        orderedMediaFiles = Object.keys(zip.files).filter(f => f.toLowerCase().startsWith('word/media/') && !zip.files[f].dir);
+        orderedMediaFiles.sort((a, b) => {
+          const numA = parseInt((a.replace(/\D/g, '') || '0'), 10);
+          const numB = parseInt((b.replace(/\D/g, '') || '0'), 10);
+          return numA - numB;
+        });
+      }
+
+      for (let i = 0; i < orderedMediaFiles.length; i++) {
+        const file = zip.files[orderedMediaFiles[i]];
+        if (!file) continue;
+        const buf = await file.async('nodebuffer');
+        allPages.push({
+          name: file.name,
+          buffer: buf
+        });
+      }
+    } else {
+      console.log('🔄 Rendering PDF pages to Vision images (150 DPI)...');
+      allPages = await renderPdfPagesToImages(req.file.buffer, 150);
+    }
+
     const totalPages = allPages.length;
-    console.log(`✓ Rendered \x1b[32m${totalPages}\x1b[0m PDF page(s) in \x1b[33m${((Date.now() - renderStartTime) / 1000).toFixed(2)}s\x1b[0m`);
+    console.log(`✓ Loaded \x1b[32m${totalPages}\x1b[0m page(s) in \x1b[33m${((Date.now() - renderStartTime) / 1000).toFixed(2)}s\x1b[0m`);
 
     let targetPageIndices = [];
     if (pagesOption === 'all') {
@@ -416,7 +479,15 @@ app.post('/api/manga/generate-docx', upload.none(), async (req, res) => {
       };
     });
 
-    const docxBuffer = await generateDocxFromImages(imageItems);
+    const ocrItemsStr = req.body.ocr_items || '[]';
+    let ocrItems = [];
+    try {
+      ocrItems = JSON.parse(ocrItemsStr);
+    } catch (e) {
+      ocrItems = [];
+    }
+
+    const docxBuffer = await generateDocxWithKhmerScript(imageItems, ocrItems, mangaTitle);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"`);
@@ -474,39 +545,6 @@ app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
   }
 });
 
-/**
- * POST /api/render-translated-page
- * Render translated Khmer speech bubbles onto a page image for live preview
- */
-app.post('/api/render-translated-page', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ status: 'error', message: 'Missing PDF file' });
-    }
-
-    const pageNum = parseInt(req.body.pageNum || '1', 10);
-    const ocrItemsStr = req.body.ocr_items || '[]';
-    const ocrItems = JSON.parse(ocrItemsStr);
-
-    const allPages = await renderPdfPagesToImages(req.file.buffer, 150);
-    if (pageNum < 1 || pageNum > allPages.length) {
-      return res.status(400).json({ status: 'error', message: `Invalid page number ${pageNum}` });
-    }
-
-    const origPage = allPages[pageNum - 1];
-    const renderedPngBuffer = await renderMangaPageKhmer(origPage.buffer, ocrItems);
-    const base64Str = renderedPngBuffer.toString('base64');
-
-    return res.json({
-      status: 'success',
-      pageNum,
-      dataUrl: `data:image/png;base64,${base64Str}`
-    });
-  } catch (err) {
-    console.error('Error rendering translated page:', err);
-    return res.status(500).json({ status: 'error', message: err.message });
-  }
-});
 
 /**
  * POST /api/apply-khmer-pdf

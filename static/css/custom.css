@@ -210,22 +210,3 @@ select option:checked {
     background-color: #3b82f6 !important;
     color: #ffffff !important;
 }
-
-/* Word Editor Ribbon Specific Select styling */
-#word-editor-ribbon select {
-    color: #0f172a;
-}
-
-.dark #word-editor-ribbon select {
-    color: #f8fafc;
-}
-
-#word-editor-ribbon select option {
-    background-color: #ffffff;
-    color: #0f172a;
-}
-
-.dark #word-editor-ribbon select option {
-    background-color: #0f172a;
-    color: #f8fafc;
-}

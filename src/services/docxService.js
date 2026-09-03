@@ -1,50 +1,100 @@
-const { Document, Packer, Paragraph, ImageRun, AlignmentType } = require('docx');
+const {
+  Document,
+  Packer,
+  Paragraph,
+  ImageRun,
+  AlignmentType,
+  LineRuleType
+} = require('docx');
 const sharp = require('sharp');
 const { renderMangaPageKhmer } = require('./imageOverlayService');
 
+/**
+ * Convert pixel to OpenXML Twips (1 px = 15 Twips at 96 DPI)
+ */
 function pxToTwips(px) {
   return Math.round(px * 15);
 }
 
-async function generateDocxFromImages(imageItems = []) {
-  if (!imageItems || imageItems.length === 0) {
+// Unified standard width for all pages (350px = 5,250 Twips = ~9.26cm Compact Manga Size)
+// 350px allows viewing 3-4 pages side-by-side in Word multi-page grid and guarantees zero slicing for tall strips
+const UNIFIED_WIDTH_PX = 350;
+const UNIFIED_WIDTH_TWIPS = pxToTwips(UNIFIED_WIDTH_PX); // 5,250 Twips
+// Microsoft Word maximum safe page height limit (31,000 Twips = ~2,066px)
+const MAX_WORD_TWIPS = 31000;
+const MIN_WORD_TWIPS = 720;
+
+/**
+ * Generate a 100% Microsoft Word (.docx) compliant document
+ * where ALL pages have the EXACT SAME uniform width (350px / 5,250 Twips),
+ * height dynamically and automatically follows each image's true aspect ratio (zero distortion),
+ * and whole images stay 100% intact on single pages without any cutting through speech bubbles.
+ */
+async function generateDocxWithKhmerScript(pageImages = [], ocrItems = [], title = 'Manga Document') {
+  if (!pageImages || pageImages.length === 0) {
     throw new Error('No images provided for DOCX generation');
   }
 
   const sections = [];
 
-  for (let i = 0; i < imageItems.length; i++) {
-    const item = imageItems[i];
-    let imgBuffer = item.buffer;
-    
-    const metadata = await sharp(imgBuffer).metadata();
-    let rawWidth = metadata.width || 800;
-    let rawHeight = metadata.height || 1200;
+  for (let pIdx = 0; pIdx < pageImages.length; pIdx++) {
+    const pageObj = pageImages[pIdx];
+    const pageNum = pIdx + 1;
+    let imgBuffer = pageObj.buffer;
 
-    // Always normalize to standard JPEG buffer for Microsoft Word OpenXML parser
-    imgBuffer = await sharp(imgBuffer).jpeg({ quality: 92 }).toBuffer();
+    if (!imgBuffer || imgBuffer.length === 0) {
+      continue;
+    }
 
-    const targetWidthPx = Math.min(1000, Math.max(500, rawWidth));
+    const pageBoxes = ocrItems.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
+
+    // 1. Overlay clean solid-white speech bubbles & Khmer text if translations exist
+    if (pageBoxes.length > 0) {
+      try {
+        imgBuffer = await renderMangaPageKhmer(imgBuffer, pageBoxes);
+      } catch (err) {
+        console.warn(`[DocxService] Overlay warning on page ${pageNum}:`, err.message);
+      }
+    }
+
+    // 2. Read image metadata to calculate aspect ratio
+    let rawWidth = 350;
+    let rawHeight = 525;
+    try {
+      const metadata = await sharp(imgBuffer).metadata();
+      rawWidth = metadata.width || 350;
+      rawHeight = metadata.height || 525;
+      imgBuffer = await sharp(imgBuffer).jpeg({ quality: 95 }).toBuffer();
+    } catch (err) {
+      console.warn(`[DocxService] Image normalization warning on page ${pageNum}:`, err.message);
+      continue;
+    }
+
+    // 3. Calculate Height proportionally based on UNIFIED_WIDTH_PX (Equal Width = 350px)
+    let targetWidthPx = UNIFIED_WIDTH_PX;
     const scale = targetWidthPx / rawWidth;
     let targetHeightPx = Math.round(rawHeight * scale);
 
-    const MAX_WORD_HEIGHT_PX = 1800;
-    let finalWidthPx = targetWidthPx;
-    if (targetHeightPx > MAX_WORD_HEIGHT_PX) {
-      const shrinkRatio = MAX_WORD_HEIGHT_PX / targetHeightPx;
-      targetHeightPx = MAX_WORD_HEIGHT_PX;
-      finalWidthPx = Math.round(targetWidthPx * shrinkRatio);
+    let widthTwips = UNIFIED_WIDTH_TWIPS;
+    let heightTwips = pxToTwips(targetHeightPx);
+
+    // If an ultra-long strip still exceeds Word's maximum height limit (31,000 Twips),
+    // scale BOTH width and height proportionally so the whole image fits 100% on 1 page without cutting!
+    if (heightTwips > MAX_WORD_TWIPS) {
+      const shrinkRatio = MAX_WORD_TWIPS / heightTwips;
+      heightTwips = MAX_WORD_TWIPS;
+      targetHeightPx = Math.floor(MAX_WORD_TWIPS / 15);
+      targetWidthPx = Math.round(targetWidthPx * shrinkRatio);
     }
+    heightTwips = Math.max(MIN_WORD_TWIPS, heightTwips);
 
-    const widthTwips = Math.min(31680, Math.max(720, pxToTwips(finalWidthPx)));
-    const heightTwips = Math.min(31680, Math.max(720, pxToTwips(targetHeightPx)));
-
+    // 4. Section with UNIFIED WIDTH for every page + Dynamic Aspect Ratio Height + Zero Margins
     sections.push({
       properties: {
         page: {
           size: {
-            width: widthTwips,
-            height: heightTwips
+            width: widthTwips,       // Uniform 5,250 Twips (350px)
+            height: heightTwips + 20 // Dynamic height matching image aspect ratio
           },
           margin: {
             top: 0,
@@ -60,20 +110,31 @@ async function generateDocxFromImages(imageItems = []) {
             new ImageRun({
               data: imgBuffer,
               transformation: {
-                width: finalWidthPx,
+                width: targetWidthPx,
                 height: targetHeightPx
               },
               type: 'jpg'
             })
           ],
           alignment: AlignmentType.CENTER,
-          spacing: { before: 0, after: 0 }
+          spacing: {
+            before: 0,
+            after: 0,
+            line: 20,
+            lineRule: LineRuleType.EXACTLY
+          }
         })
       ]
     });
   }
 
+  if (sections.length === 0) {
+    throw new Error('No valid image sections could be generated for DOCX');
+  }
+
   const doc = new Document({
+    title: title || 'Manga Document',
+    description: 'High-Definition Uniform-Width Manga Document (350px)',
     sections: sections
   });
 
@@ -81,43 +142,15 @@ async function generateDocxFromImages(imageItems = []) {
 }
 
 /**
- * Generate 1:1 Full-page Visual Manga Word (.docx) document with Khmer speech bubbles burned onto images
+ * Generate standard DOCX without OCR transcript (Visual Pages Only)
  */
-async function generateDocxVisualManga(pageImages = [], ocrItems = [], mangaTitle = 'Manga Document') {
-  if (!pageImages || pageImages.length === 0) {
-    throw new Error('No images provided for DOCX generation');
-  }
-
-  const renderedPages = [];
-
-  for (let pIdx = 0; pIdx < pageImages.length; pIdx++) {
-    const pageObj = pageImages[pIdx];
-    const pageNum = pIdx + 1;
-    let imgBuffer = pageObj.buffer;
-
-    const pageItems = ocrItems.filter(item => parseInt(item.pageNum || 1, 10) === pageNum);
-
-    // If there are Khmer translations for this page, render them onto the image buffer!
-    if (pageItems.length > 0) {
-      try {
-        imgBuffer = await renderMangaPageKhmer(imgBuffer, pageItems);
-      } catch (err) {
-        console.warn(`[DocxService] Failed to overlay Khmer text on page ${pageNum}:`, err.message);
-      }
-    }
-
-    renderedPages.push({
-      pageNum,
-      buffer: imgBuffer,
-      name: pageObj.name || `page_${pageNum}.jpg`
-    });
-  }
-
-  return await generateDocxFromImages(renderedPages);
+async function generateDocxFromImages(imageItems = []) {
+  return await generateDocxWithKhmerScript(imageItems, [], 'Manga Document');
 }
 
 module.exports = {
   generateDocxFromImages,
-  generateDocxWithKhmerScript: generateDocxVisualManga,
-  generateDocxVisualManga
+  generateDocxWithKhmerScript,
+  generateDocxVisualManga: generateDocxWithKhmerScript,
+  generateDocxWithEditableShapes: generateDocxWithKhmerScript
 };
