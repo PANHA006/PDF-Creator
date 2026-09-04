@@ -89,6 +89,19 @@ function parseJsonSafely(text) {
 }
 
 /**
+ * Remove trailing Khmer punctuation '។' (U+17D4) and surrounding whitespaces at the end of text or lines
+ */
+function cleanKhmerPunctuation(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .split(/\r?\n/)
+    .map(line => line.replace(/[\s\u17D4]+$/g, '').trim())
+    .join('\n')
+    .replace(/[\s\u17D4]+$/g, '')
+    .trim();
+}
+
+/**
  * Scan OCR and translate manga/comic dialogues from page image buffer
  */
 async function scanOcrImage(apiKey, imageBuffer, pageNum, langOption = 'auto', isMangaDirect = false) {
@@ -131,6 +144,7 @@ Follow these strict rules:
 4. CONSOLIDATE MULTILINE BUBBLE DIALOGUES into single complete, coherent sentences. Do NOT split text inside the same speech bubble into separate rows.
 5. ORDER THE DIALOGUES in standard Manga reading order (Top-to-Bottom, Right-to-Left or Left-to-Right based on layout).
 6. TRANSLATE EACH DIALOGUE into natural, context-appropriate Khmer (ភាសាខ្មែរ).
+7. PUNCTUATION RULE: Do NOT add the Khmer full-stop mark '។' (Khan/period) at the end of speech bubble dialogue lines.
 
 Please respond ONLY with a JSON array matching this exact schema:
 [
@@ -154,6 +168,7 @@ Follow these strict rules:
 5. ORDER THE TEXT BLOCKS in standard reading order (Top-to-Bottom, Left-to-Right or Right-to-Left based on layout).
 6. TRANSLATE TARGET: Translate ALL sentence dialogues, vocabulary, and titles (e.g. "Consort" -> "ព្រះស្នំ", "Crown Prince" -> "រជ្ជទាយាទ", "Emperor" -> "អធិរាជ", "Kingdom" -> "នគរ") into 100% fluent, natural KHMER (ភាសាខ្មែរ ONLY). Do NOT leave common English words or titles un-translated inside Khmer sentences!
 7. PROPER CHARACTER NAMES: Only keep specific proper character names (e.g. "Wu Yu", "Yuan Xi") in their original Latin/English name form or transliterated cleanly inside the Khmer sentence. All other words and titles in the sentence MUST be fully translated into Khmer!
+8. PUNCTUATION RULE: Do NOT add the Khmer full-stop mark '។' (Khan/period) at the end of speech bubbles or dialogue sentences.
 ${langRule}
 
 Please respond ONLY with a JSON array matching this exact schema:
@@ -202,7 +217,7 @@ Please respond ONLY with a JSON array matching this exact schema:
   for (let idx = 0; idx < blocks.length; idx++) {
     const b = blocks[idx];
     const origText = (b.original_text || '').trim();
-    const khmerText = (b.khmer_translation || '').trim();
+    const khmerText = cleanKhmerPunctuation(b.khmer_translation || '');
     const posHint = b.position || '';
     const box2d = Array.isArray(b.box_2d) && b.box_2d.length === 4 ? b.box_2d : null;
 
@@ -250,6 +265,7 @@ Follow these strict rules:
 1. CORRECT TYPOS & GRAMMAR: Fix misread characters, typos, punctuation, and formatting errors in original_text and khmer_translation.
 2. PRESERVE PROPER NAMES: Keep proper character names (e.g., "Wu Yu", "Yuan Xi") in their original Latin/English name form while translating all other text and titles (e.g., "Consort" -> "ព្រះស្នំ", "Crown Prince" -> "រជ្ជទាយាទ", "Emperor" -> "អធិរាជ") into 100% fluent Khmer (ភាសាខ្មែរ ONLY).
 3. DO NOT MERGE, DELETE, OR ADD ROWS: Do NOT perform any delete, merge, or add operations. You MUST ONLY suggest "update" operations for existing row IDs.
+4. PUNCTUATION RULE: Do NOT add the Khmer full-stop mark '។' (Khan/period) at the end of speech bubbles or dialogue sentences.
 
 Here is the list of OCR items currently on the page:
 ${ocrFormatted}
@@ -290,10 +306,19 @@ Please respond ONLY with a JSON array matching this exact schema:
   }
 
   const rawText = candidates[0].content?.parts?.[0]?.text || '[]';
-  return parseJsonSafely(rawText);
+  const parsed = parseJsonSafely(rawText);
+  if (Array.isArray(parsed)) {
+    parsed.forEach(item => {
+      if (item.khmer_translation) {
+        item.khmer_translation = cleanKhmerPunctuation(item.khmer_translation);
+      }
+    });
+  }
+  return parsed;
 }
 
 module.exports = {
   scanOcrImage,
-  aiReview
+  aiReview,
+  cleanKhmerPunctuation
 };

@@ -442,10 +442,10 @@ app.post('/api/manga/generate-zip', upload.none(), async (req, res) => {
 
     const filesData = JSON.parse(filesJson);
     const mangaTitle = req.body.manga_title || 'manga_download';
-    const safeName = mangaTitle.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_') || 'manga_download';
+    const safeName = mangaTitle.replace(/[^\w\s\-().\u1780-\u17FF]/g, '_').replace(/\s+/g, ' ').trim() || 'manga_download';
 
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"; filename*=UTF-8''${encodeURIComponent(safeName)}.zip`);
 
     const archiveStream = createZipStream(filesData);
     archiveStream.pipe(res);
@@ -468,7 +468,7 @@ app.post('/api/manga/generate-docx', upload.none(), async (req, res) => {
 
     const filesData = JSON.parse(filesJson);
     const mangaTitle = req.body.manga_title || 'manga_chapter';
-    const safeName = mangaTitle.replace(/[^a-zA-Z0-9_\-\u1780-\u17FF]/g, '_').replace(/_+/g, '_') || 'manga_chapter';
+    const safeName = mangaTitle.replace(/[^\w\s\-().\u1780-\u17FF]/g, '_').replace(/\s+/g, ' ').trim() || 'manga_chapter';
 
     const imageItems = filesData.map(f => {
       let b64 = f.dataUrl || '';
@@ -490,7 +490,7 @@ app.post('/api/manga/generate-docx', upload.none(), async (req, res) => {
     const docxBuffer = await generateDocxWithKhmerScript(imageItems, ocrItems, mangaTitle);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"; filename*=UTF-8''${encodeURIComponent(safeName)}.docx`);
     return res.send(docxBuffer);
   } catch (err) {
     console.error('Error generating Manga DOCX:', err);
@@ -514,8 +514,73 @@ app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
     const title = req.body.title || 'Document';
 
     let pageImages = [];
-    if (files.length === 1 && (files[0].mimetype === 'application/pdf' || files[0].originalname.endsWith('.pdf') || files[0].buffer.slice(0, 4).toString() === '%PDF')) {
-      const rendered = await renderPdfPagesToImages(files[0].buffer, 150);
+    const firstFile = files[0];
+    const isDocx = files.length === 1 && (
+      (firstFile.originalname && firstFile.originalname.toLowerCase().endsWith('.docx')) ||
+      (firstFile.mimetype && firstFile.mimetype.includes('wordprocessingml')) ||
+      (firstFile.buffer && firstFile.buffer.length > 4 && firstFile.buffer.slice(0, 2).toString() === 'PK')
+    );
+    const isPdf = !isDocx && files.length === 1 && (
+      (firstFile.mimetype === 'application/pdf') ||
+      (firstFile.originalname && firstFile.originalname.toLowerCase().endsWith('.pdf')) ||
+      (firstFile.buffer && firstFile.buffer.length > 4 && firstFile.buffer.slice(0, 4).toString() === '%PDF')
+    );
+
+    if (isDocx) {
+      const zip = await JSZip.loadAsync(firstFile.buffer);
+      let orderedMediaFiles = [];
+
+      // 1. Build Relationship map from word/_rels/document.xml.rels
+      const relsMap = {};
+      const relsFile = zip.file('word/_rels/document.xml.rels');
+      if (relsFile) {
+        const relsXml = await relsFile.async('text');
+        const relMatches = relsXml.matchAll(/<Relationship\s+[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g);
+        for (const match of relMatches) {
+          const id = match[1];
+          let target = match[2];
+          if (!target.toLowerCase().startsWith('word/')) {
+            target = 'word/' + target.replace(/^\//, '');
+          }
+          relsMap[id] = target;
+        }
+      }
+
+      // 2. Extract in strict sequential page order from word/document.xml
+      const docFile = zip.file('word/document.xml');
+      if (docFile) {
+        const docXml = await docFile.async('text');
+        const embedMatches = docXml.matchAll(/r:embed="([^"]+)"/g);
+        for (const match of embedMatches) {
+          const rId = match[1];
+          const target = relsMap[rId];
+          if (target && zip.files[target] && !orderedMediaFiles.includes(target)) {
+            orderedMediaFiles.push(target);
+          }
+        }
+      }
+
+      if (orderedMediaFiles.length === 0) {
+        orderedMediaFiles = Object.keys(zip.files).filter(f => f.toLowerCase().startsWith('word/media/') && !zip.files[f].dir);
+        orderedMediaFiles.sort((a, b) => {
+          const numA = parseInt((a.replace(/\D/g, '') || '0'), 10);
+          const numB = parseInt((b.replace(/\D/g, '') || '0'), 10);
+          return numA - numB;
+        });
+      }
+
+      for (let i = 0; i < orderedMediaFiles.length; i++) {
+        const file = zip.files[orderedMediaFiles[i]];
+        if (!file) continue;
+        const buf = await file.async('nodebuffer');
+        pageImages.push({
+          pageNum: i + 1,
+          buffer: buf,
+          name: file.name
+        });
+      }
+    } else if (isPdf) {
+      const rendered = await renderPdfPagesToImages(firstFile.buffer, 150);
       pageImages = rendered.map((p, idx) => ({
         pageNum: idx + 1,
         buffer: p.buffer,
@@ -537,7 +602,7 @@ app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
     }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', 'attachment; filename="document.docx"');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(title || 'document')}.docx"`);
     return res.send(docxBuffer);
   } catch (err) {
     console.error('Error generating DOCX:', err);

@@ -109,8 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const db = await openDB();
             const tx = db.transaction(pdfStoreName, "readwrite");
             const store = tx.objectStore(pdfStoreName);
+            const targetId = typeof id === 'string' && !isNaN(Number(id)) ? Number(id) : id;
             return new Promise((resolve, reject) => {
-                const req = store.delete(id);
+                const req = store.delete(targetId);
                 req.onsuccess = () => resolve();
                 req.onerror = () => reject(req.error);
             });
@@ -1916,9 +1917,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             target.lineText = op.text.trim();
                             isChanged = true;
                         }
-                        if (op.khmer_translation && op.khmer_translation.trim() && target.transText !== op.khmer_translation.trim()) {
-                            target.transText = op.khmer_translation.trim();
-                            isChanged = true;
+                        if (op.khmer_translation && op.khmer_translation.trim()) {
+                            const cleanTrans = op.khmer_translation.replace(/[\s\u17D4]+$/g, '').trim();
+                            if (target.transText !== cleanTrans) {
+                                target.transText = cleanTrans;
+                                isChanged = true;
+                            }
                         }
                         if (isChanged) updateCount++;
                     }
@@ -1990,7 +1994,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     formData.append('images', img.file, img.file.name || `page_${idx + 1}.png`);
                 });
             } else if (currentPdfBlob) {
-                formData.append('images', currentPdfBlob, activePdfFile ? activePdfFile.name : 'document.pdf');
+                const docName = (activePdfFile && activePdfFile.name) ? activePdfFile.name : (currentPdfBlob.type?.includes('pdf') ? 'document.pdf' : 'document.docx');
+                formData.append('images', currentPdfBlob, docName);
             }
             formData.append('ocr_items', JSON.stringify(ocrResults));
             const baseName = (activePdfFile && activePdfFile.name) ? activePdfFile.name.replace(/\.[^/.]+$/, '') : 'manga_khmer';
@@ -2596,9 +2601,9 @@ document.addEventListener('DOMContentLoaded', () => {
             chCard.dataset.id = ch.id;
             chCard.dataset.chapter = ch.chapter;
             
-            const volumeLabel = ch.volume ? `Vol. ${ch.volume} ` : '';
-            const chapterLabel = ch.chapter ? `Ch. ${ch.chapter}` : 'Special';
-            const titleLabel = ch.title ? ` - ${ch.title}` : '';
+            const mangaTitle = currentMangaData ? (currentMangaData.title || 'Manga') : 'Manga';
+            const chNum = ch.chapter ? ch.chapter : '1';
+            const displayChapterTitle = `ch-${chNum}-${mangaTitle}`;
 
             let pagesLabel = '';
             if (downloadedPagesMap.has(ch.id)) {
@@ -2610,7 +2615,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             chCard.innerHTML = `
                 <div class="flex flex-col gap-0.5">
-                    <span class="font-bold text-xs text-slate-800 dark:text-slate-200">${volumeLabel}${chapterLabel}${titleLabel}</span>
+                    <span class="font-bold text-xs text-slate-800 dark:text-slate-200">${displayChapterTitle}</span>
                     <span class="text-[10px] text-slate-400 font-semibold">${pagesLabel}</span>
                 </div>
                 <div class="ch-checkbox w-4 h-4 border border-slate-300 dark:border-slate-700 rounded flex items-center justify-center text-white bg-transparent">
@@ -2875,6 +2880,20 @@ document.addEventListener('DOMContentLoaded', () => {
         await downloadZipFile();
     });
 
+    function buildMangaCustomBaseName(mangaTitle, chapterEntries) {
+        const rawTitle = (mangaTitle || 'Manga').trim();
+        if (!chapterEntries || chapterEntries.length === 0) {
+            return rawTitle;
+        }
+        if (chapterEntries.length === 1) {
+            const ch = chapterEntries[0].chStr || chapterEntries[0].chNum || '1';
+            return `ch-${ch}-${rawTitle}`;
+        }
+        const firstCh = chapterEntries[0].chStr || chapterEntries[0].chNum || '1';
+        const lastCh = chapterEntries[chapterEntries.length - 1].chStr || chapterEntries[chapterEntries.length - 1].chNum || chapterEntries.length;
+        return `ch-(${firstCh}-${lastCh})-${rawTitle}`;
+    }
+
     async function downloadZipFile() {
         mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងរៀបចំឯកសារ ZIP...`;
         lucide.createIcons();
@@ -2914,9 +2933,10 @@ document.addEventListener('DOMContentLoaded', () => {
         btnMangaDownloadZip.disabled = true;
 
         try {
+            const customBaseName = buildMangaCustomBaseName(currentMangaData.title, chapterEntries);
             const formData = new FormData();
             formData.append('files', JSON.stringify(allImagesData));
-            formData.append('manga_title', currentMangaData.title);
+            formData.append('manga_title', customBaseName);
 
             const response = await fetch('/api/manga/generate-zip', {
                 method: 'POST',
@@ -2932,7 +2952,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const a = document.createElement('a');
             a.style.display = 'none';
             a.href = url;
-            a.download = `${currentMangaData.title.replace(/\s+/g, '_')}_chapters.zip`;
+            a.download = `${customBaseName}.zip`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -2941,7 +2961,7 @@ document.addEventListener('DOMContentLoaded', () => {
             mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> ទាញយក ZIP រួចរាល់!`;
             logActivityEntry({
                 type: 'manga',
-                title: `ទាញយកជា ZIP៖ ${currentMangaData.title}`,
+                title: `ទាញយកជា ZIP៖ ${customBaseName}`,
                 subtitle: `ផ្ទុក ${downloadedPagesMap.size} ភាគ`,
                 details: `ឯកសារ ZIP សម្រាប់កុំព្យូទ័រ`
             });
@@ -2996,9 +3016,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btnMangaDownloadDocx.disabled = true;
 
         try {
+            const customBaseName = buildMangaCustomBaseName(currentMangaData.title, chapterEntries);
+            const docxName = `${customBaseName}.docx`;
+
             const formData = new FormData();
             formData.append('files', JSON.stringify(allImagesData));
-            formData.append('manga_title', currentMangaData.title);
+            formData.append('manga_title', customBaseName);
 
             const response = await fetch('/api/manga/generate-docx', {
                 method: 'POST',
@@ -3010,7 +3033,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const blob = await response.blob();
-            const docxName = `${currentMangaData.title.replace(/\s+/g, '_')}_chapters.docx`;
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.style.display = 'none';
@@ -3022,10 +3044,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(a);
 
             // Save DOCX blob directly into IndexedDB library (Zero PDF generation overhead)
-            const docTitle = chapterEntries.length === 1 
-                ? `${currentMangaData.title} - Ch ${chapterEntries[0].chStr}.docx`
-                : `${currentMangaData.title} - ${chapterEntries.length} Chapters.docx`;
-
+            const docTitle = docxName;
             const createdDocId = await savePdfToDB(docTitle, blob);
 
             // Switch to Manga Creator view & OCR tab for preview
@@ -3044,7 +3063,7 @@ document.addEventListener('DOMContentLoaded', () => {
             mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> បានបញ្ជូនទៅកាន់ Manga Creator និងទាញយក Word រួចរាល់!`;
             logActivityEntry({
                 type: 'doc',
-                title: `បញ្ជូន DOCX ទៅ Manga Creator៖ ${currentMangaData.title}`,
+                title: `បញ្ជូន DOCX ទៅ Manga Creator៖ ${customBaseName}`,
                 subtitle: `ផ្ទុក ${downloadedPagesMap.size} ភាគ (Word Document)`,
                 details: `ទំហំសមាមាត្ររូបភាព 1:1`
             });
@@ -3167,14 +3186,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     const pdfBlob = await response.blob();
-                    let pdfName = '';
-                    if (totalBatches > 1) {
-                        pdfName = `${currentMangaData.title} - Vol ${volNum} (Ch ${firstCh}-${lastCh}).pdf`;
-                    } else if (currentBatch.length > 1) {
-                        pdfName = `${currentMangaData.title} - Ch ${firstCh}-${lastCh} (Combined).pdf`;
-                    } else {
-                        pdfName = `${currentMangaData.title} - Ch ${firstCh}.pdf`;
-                    }
+                    const batchBaseName = buildMangaCustomBaseName(currentMangaData.title, currentBatch);
+                    const pdfName = `${batchBaseName}.pdf`;
 
                     // Save volume PDF to IndexedDB
                     lastCreatedPdfId = await savePdfToDB(pdfName, pdfBlob);
@@ -3246,7 +3259,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     const pdfBlob = await response.blob();
-                    const pdfName = `${currentMangaData.title} - Ch ${chNum}.pdf`;
+                    const chBaseName = buildMangaCustomBaseName(currentMangaData.title, [{ chStr, chNum }]);
+                    const pdfName = `${chBaseName}.pdf`;
                     
                     // Save to IndexedDB
                     lastCreatedPdfId = await savePdfToDB(pdfName, pdfBlob);
@@ -3391,19 +3405,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Render History Page
     async function renderHistoryPage() {
-        const history = getHistoryList();
+        const historyLogs = getHistoryList();
         const pdfs = await loadPdfsFromDB();
 
         // 1. Calculate & Render Stats
         if (statPdfCount) statPdfCount.textContent = pdfs.length;
         
-        const mangaEntries = history.filter(h => h.type === 'manga');
+        const mangaEntries = historyLogs.filter(h => h.type === 'manga');
         if (statMangaCount) statMangaCount.textContent = mangaEntries.length;
 
-        const ocrEntries = history.filter(h => h.type === 'ocr');
+        const ocrEntries = historyLogs.filter(h => h.type === 'ocr');
         if (statOcrCount) statOcrCount.textContent = ocrEntries.length;
 
-        const pdfEntries = history.filter(h => h.type === 'pdf');
+        // Convert stored PDF files into real entries
+        const pdfEntries = pdfs.map(p => {
+            const sizeMb = p.blob && p.blob.size ? (p.blob.size / (1024 * 1024)).toFixed(1) + ' MB' : '';
+            const isDocx = p.name && p.name.toLowerCase().endsWith('.docx');
+            return {
+                id: `db_pdf_${p.id}`,
+                dbId: p.id,
+                type: 'pdf',
+                title: p.name || 'PDF Document',
+                subtitle: sizeMb ? `${sizeMb}` : 'ឯកសាររក្សាទុកក្នុងបណ្ណាល័យ',
+                details: isDocx ? 'Word (.docx) Manga Document' : 'PDF Document (IndexedDB)',
+                timestamp: p.timestamp || p.date || new Date().toISOString(),
+                isDbPdf: true,
+                pdfObject: p
+            };
+        });
 
         // Calculate storage
         let totalBytes = 0;
@@ -3413,17 +3442,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const mbSize = (totalBytes / (1024 * 1024)).toFixed(1);
         if (statStorageSize) statStorageSize.textContent = `${mbSize} MB`;
 
+        // Combine all items for rendering
+        const otherLogs = historyLogs.filter(h => h.type !== 'pdf');
+        const allCombinedItems = [...pdfEntries, ...otherLogs];
+
         // Update filter badge counts
-        if (filterCountAll) filterCountAll.textContent = history.length;
+        if (filterCountAll) filterCountAll.textContent = allCombinedItems.length;
         if (filterCountManga) filterCountManga.textContent = mangaEntries.length;
         if (filterCountOcr) filterCountOcr.textContent = ocrEntries.length;
         if (filterCountPdf) filterCountPdf.textContent = pdfEntries.length;
 
         // 2. Filter & Search
-        let filtered = [...history];
-
-        if (currentHistoryFilter !== 'all') {
-            filtered = filtered.filter(h => h.type === currentHistoryFilter);
+        let filtered = [];
+        if (currentHistoryFilter === 'all') {
+            filtered = allCombinedItems;
+        } else if (currentHistoryFilter === 'pdf') {
+            filtered = pdfEntries;
+        } else if (currentHistoryFilter === 'manga') {
+            filtered = mangaEntries;
+        } else if (currentHistoryFilter === 'ocr') {
+            filtered = ocrEntries;
         }
 
         if (historySearchQuery.trim()) {
@@ -3434,6 +3472,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 (h.details || '').toLowerCase().includes(q)
             );
         }
+
+        // Sort items by timestamp descending
+        filtered.sort((a, b) => {
+            const timeA = new Date(a.timestamp || 0).getTime();
+            const timeB = new Date(b.timestamp || 0).getTime();
+            return timeB - timeA;
+        });
 
         // 3. Render Cards
         if (!historyListContainer) return;
@@ -3464,6 +3509,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 typeIcon = 'sparkles';
                 typeColor = 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400';
                 typeBadge = 'OCR & TRANSLATE';
+            } else if (item.isDbPdf) {
+                const isDocx = item.title && item.title.toLowerCase().endsWith('.docx');
+                if (isDocx) {
+                    typeIcon = 'file-type-2';
+                    typeColor = 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400';
+                    typeBadge = 'WORD (.DOCX)';
+                } else {
+                    typeBadge = 'PDF (SAVED)';
+                }
+            }
+
+            let actionButtonsHtml = '';
+            if (item.isDbPdf && item.pdfObject) {
+                actionButtonsHtml = `
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        <button class="btn-open-db-pdf px-3 py-1.5 rounded-xl bg-brand-50 hover:bg-brand-100 dark:bg-brand-950/50 dark:hover:bg-brand-900/60 text-brand-600 dark:text-brand-400 font-bold text-xs flex items-center gap-1.5 transition active:scale-95" title="បើកមើល និងកែសម្រួល">
+                            <i data-lucide="eye" class="w-3.5 h-3.5"></i> មើល
+                        </button>
+                        <button class="btn-download-db-pdf px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition active:scale-95" title="ទាញយកឯកសារ">
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i> ទាញយក
+                        </button>
+                        <button class="btn-delete-db-pdf p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition active:scale-95" title="លុបឯកសារចេញពីបណ្ណាល័យ">
+                            <i data-lucide="trash" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                `;
+            } else {
+                actionButtonsHtml = `
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        <button class="btn-delete-history p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition active:scale-95" data-id="${item.id}" title="លុបកំណត់ត្រានេះ">
+                            <i data-lucide="trash" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                `;
             }
 
             card.innerHTML = `
@@ -3480,21 +3559,50 @@ document.addEventListener('DOMContentLoaded', () => {
                         <p class="text-[11px] text-slate-400 dark:text-slate-500 truncate">${item.subtitle ? item.subtitle + ' • ' : ''}${item.details}</p>
                     </div>
                 </div>
-
-                <div class="flex items-center gap-2 flex-shrink-0">
-                    <button class="btn-delete-history p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition" data-id="${item.id}" title="លុបកំណត់ត្រានេះ">
-                        <i data-lucide="trash" class="w-4 h-4"></i>
-                    </button>
-                </div>
+                ${actionButtonsHtml}
             `;
 
-            // Delete single history log
-            card.querySelector('.btn-delete-history')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const list = getHistoryList().filter(h => h.id !== item.id);
-                saveHistoryList(list);
-                renderHistoryPage();
-            });
+            // DB PDF Actions
+            if (item.isDbPdf && item.pdfObject) {
+                // Open in PDF Creator
+                card.querySelector('.btn-open-db-pdf')?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    switchView('pdf-creator');
+                    switchTab('ocr');
+                    selectPdfFile(item.pdfObject);
+                });
+
+                // Download
+                card.querySelector('.btn-download-db-pdf')?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (item.pdfObject.blob) {
+                        downloadPdfFile(item.pdfObject.blob, item.pdfObject.name || 'document.pdf');
+                    }
+                });
+
+                // Delete
+                card.querySelector('.btn-delete-db-pdf')?.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (confirm(`តើអ្នកពិតជាចង់លុបឯកសារ "${item.title}" ចេញពីបណ្ណាល័យមែនទេ?`)) {
+                        await deletePdfFromDB(item.dbId);
+                        if (activePdfFile && activePdfFile.id === item.dbId) {
+                            activePdfFile = null;
+                            currentPdfBlob = null;
+                            currentDocPages = [];
+                        }
+                        await loadAndRenderPdfGrid();
+                        await renderHistoryPage();
+                    }
+                });
+            } else {
+                // Delete single history log
+                card.querySelector('.btn-delete-history')?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const list = getHistoryList().filter(h => h.id !== item.id);
+                    saveHistoryList(list);
+                    renderHistoryPage();
+                });
+            }
 
             historyListContainer.appendChild(card);
         });
@@ -3541,11 +3649,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         modalClearConfirm.classList.remove('hidden');
+        modalClearConfirm.style.display = 'flex';
         lucide.createIcons();
     }
 
     function hideClearModal() {
-        if (modalClearConfirm) modalClearConfirm.classList.add('hidden');
+        if (modalClearConfirm) {
+            modalClearConfirm.classList.add('hidden');
+            modalClearConfirm.style.display = 'none';
+        }
         pendingClearAction = null;
     }
 
@@ -3563,24 +3675,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnModalConfirm) {
         btnModalConfirm.addEventListener('click', async () => {
-            if (pendingClearAction === 'history_only') {
+            const action = pendingClearAction;
+            hideClearModal();
+
+            if (action === 'history_only') {
                 localStorage.removeItem(HISTORY_KEY);
-                hideClearModal();
-                renderHistoryPage();
+                await renderHistoryPage();
                 alert('🧹 បានលុបកំណត់ត្រាប្រវត្តិកិច្ចការទាំងអស់ដោយជោគជ័យ!');
-            } else if (pendingClearAction === 'clear_all') {
+            } else if (action === 'clear_all') {
                 // 1. Clear IndexedDB PDFs
                 await clearAllPdfsFromDB();
                 // 2. Clear history
                 localStorage.removeItem(HISTORY_KEY);
                 // 3. Clear active PDF states
                 activePdfFile = null;
+                currentPdfBlob = null;
+                currentDocPages = [];
                 selectedChaptersList.clear();
                 downloadedPagesMap.clear();
                 
-                hideClearModal();
                 await loadAndRenderPdfGrid();
-                renderHistoryPage();
+                await renderHistoryPage();
                 alert('🗑️ បានសម្អាតទិន្នន័យ ឯកសារ PDF និងប្រវត្តិទាំងអស់ដោយជោគជ័យ!');
             }
         });

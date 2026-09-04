@@ -68,7 +68,8 @@ async function renderMangaPageKhmer(imageBuffer, ocrItems = []) {
 
   for (let idx = 0; idx < ocrItems.length; idx++) {
     const item = ocrItems[idx];
-    const text = (item.transText || item.lineText || item.khmer_translation || '').trim();
+    const raw = (item.transText || item.lineText || item.khmer_translation || '').trim();
+    const text = raw.replace(/[\s\u17D4]+$/g, '').trim();
     if (!text) continue;
 
     let box;
