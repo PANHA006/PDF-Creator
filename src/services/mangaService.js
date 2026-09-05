@@ -345,26 +345,64 @@ async function fetchUniversalManga(url) {
     }
   });
 
-  const chapterElements = $(
-    '.wp-manga-chapter a, .row-content-chapter a.chapter-name, .row-content-chapter a, .chapter-list .row a, .eph-num a, .bxcl ul li a, .sub-chap-list a, a[href*="-chapter-"], a[href*="/chapter-"]'
+  // Prefer dedicated chapter containers if present to avoid pulling sidebar/related/footer links
+  let chapterElements = $(
+    '.listing-chapters_wrap a, .wp-manga-chapter a, .row-content-chapter a.chapter-name, .row-content-chapter a, .chapter-list .row a, .chapter-list a, #chapterlist a, .eph-num a, .bxcl ul li a, .sub-chap-list a, .chapters-list a'
   );
+
+  if (!chapterElements || chapterElements.length === 0) {
+    chapterElements = $(
+      'a[href*="-chapter-"], a[href*="/chapter-"], a[href*="/ch-"], a[href*="-ch-"]'
+    ).filter((_, el) => {
+      // Exclude navigation, sidebar, related, footer, comments
+      const inExcludedContainer = $(el).closest(
+        'header, footer, nav, aside, .sidebar, #sidebar, .widget, .popular, .related, .recommend, .comments, .comment'
+      ).length > 0;
+      return !inExcludedContainer;
+    });
+  }
 
   const chapters = [];
   const seenUrls = new Set();
+  const seenChapterNums = new Set();
 
   chapterElements.each((idx, el) => {
     const chUrl = $(el).attr('href')?.trim();
-    if (!chUrl || seenUrls.has(chUrl) || chUrl.startsWith('#')) return;
-    seenUrls.add(chUrl);
+    if (!chUrl || seenUrls.has(chUrl) || chUrl.startsWith('#') || chUrl.startsWith('javascript:')) return;
 
     const chTitle = $(el).text().trim();
+    const lowerTitle = chTitle.toLowerCase();
+
+    // Skip generic navigation buttons like "Read First", "Read Last", etc.
+    if (
+      lowerTitle.includes('read first') ||
+      lowerTitle.includes('read last') ||
+      lowerTitle.includes('first chapter') ||
+      lowerTitle.includes('latest chapter') ||
+      lowerTitle.includes('newest chapter') ||
+      lowerTitle.includes('prev chapter') ||
+      lowerTitle.includes('next chapter')
+    ) {
+      return;
+    }
+
     let chNum = '';
-    const match = `${chTitle} ${chUrl}`.match(/(?:chapter|ch\.?|ep\.?)\s*([0-9\.]+)/i);
+    const match = `${chTitle} ${chUrl}`.match(/(?:chapter|ch\.?|ep\.?)[-_ \t]*([0-9\.]+)/i);
     if (match) {
       chNum = match[1];
     } else {
-      chNum = String(idx + 1);
+      const fallbackNum = chTitle.match(/([0-9\.]+)/);
+      chNum = fallbackNum ? fallbackNum[1] : String(idx + 1);
     }
+
+    // Deduplicate by chapter number if already seen
+    const cleanNumKey = chNum.replace(/^0+/, '') || '0';
+    if (seenChapterNums.has(cleanNumKey)) {
+      return;
+    }
+
+    seenUrls.add(chUrl);
+    seenChapterNums.add(cleanNumKey);
 
     chapters.push({
       id: chUrl,
@@ -375,13 +413,17 @@ async function fetchUniversalManga(url) {
     });
   });
 
-  if (chapters.length > 1) {
-    const firstNum = parseFloat(chapters[0].chapter) || 0;
-    const lastNum = parseFloat(chapters[chapters.length - 1].chapter) || 0;
-    if (firstNum > lastNum) {
-      chapters.reverse();
+  // Sort chapters numerically ascending (1, 2, 3...)
+  chapters.sort((a, b) => {
+    const numA = parseFloat(a.chapter);
+    const numB = parseFloat(b.chapter);
+    if (!isNaN(numA) && !isNaN(numB)) {
+      return numA - numB;
     }
-  }
+    if (!isNaN(numA)) return -1;
+    if (!isNaN(numB)) return 1;
+    return (a.chapter || '').localeCompare(b.chapter || '', undefined, { numeric: true });
+  });
 
   return {
     id: parentUrl,

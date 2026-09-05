@@ -35,6 +35,31 @@ const { renderMangaPageKhmer } = require('./src/services/imageOverlayService');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ANSI Terminal Color Codes & Log State Helpers
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  red: '\x1b[31m',
+  gray: '\x1b[90m'
+};
+
+function getTimestamp() {
+  const now = new Date();
+  return now.toLocaleTimeString('en-US', { hour12: false });
+}
+
+function logState(category, icon, message, color = colors.cyan) {
+  const time = `${colors.gray}[${getTimestamp()}]${colors.reset}`;
+  const tag = `${color}${colors.bright}[${category}]${colors.reset}`;
+  console.log(`${time} ${tag} ${icon} ${message}`);
+}
+
 // Setup upload handler in memory with large 500MB capacity
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -48,6 +73,39 @@ const upload = multer({
 app.use(cors());
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ extended: true, limit: '500mb' }));
+
+// Global HTTP Request & Activity Logger Middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith('/static/')) return next();
+
+  const start = Date.now();
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+  let isFinished = false;
+
+  res.on('finish', () => {
+    isFinished = true;
+    const duration = Date.now() - start;
+    const status = res.statusCode;
+    const statusColor = status >= 500 ? colors.red : (status >= 400 ? colors.yellow : colors.green);
+    const methodColor = req.method === 'POST' ? colors.cyan : colors.blue;
+    
+    console.log(
+      `${colors.gray}[${getTimestamp()}]${colors.reset} ` +
+      `${methodColor}${req.method}${colors.reset} ${req.originalUrl} ` +
+      `${statusColor}${status}${colors.reset} ` +
+      `${colors.dim}(${duration}ms - ${clientIp})${colors.reset}`
+    );
+  });
+
+  res.on('close', () => {
+    if (!res.writableFinished && !isFinished) {
+      const duration = Date.now() - start;
+      logState('CANCEL', '⚠️', `${colors.yellow}Client aborted ${req.method} ${req.originalUrl} (${duration}ms)${colors.reset}`, colors.yellow);
+    }
+  });
+
+  next();
+});
 
 // Serve static assets with no-cache headers for instant updates
 app.use('/static', express.static(path.join(__dirname, 'static'), {
@@ -92,18 +150,21 @@ app.post('/api/generate-pdf', upload.array('images'), async (req, res) => {
     const quality = Math.round(parseFloat(req.body.quality || '1.0') * 100);
 
     const files = req.files || [];
+    logState('PDF', '📚', `Generating PDF with ${files.length} images (Size: ${pageSizeOption}, Quality: ${quality}%)`, colors.blue);
+
     const filesMap = {};
     for (const f of files) {
       filesMap[f.originalname] = f;
     }
 
     const pdfBuffer = await generatePdfFromImages(filesMap, metadata, pageSizeOption, quality);
+    logState('PDF', '✓', `PDF generated successfully (${(pdfBuffer.length / (1024 * 1024)).toFixed(2)} MB)`, colors.green);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="generated.pdf"');
     return res.send(pdfBuffer);
   } catch (err) {
-    console.error('Error generating PDF:', err);
+    logState('PDF', '✗', `${colors.red}PDF Generation Error: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -118,7 +179,12 @@ app.post('/api/upload-pdf', upload.single('file'), async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Missing PDF file' });
     }
 
+    const fileName = req.file.originalname || 'document.pdf';
+    logState('PDF', '📄', `Extracting pages from uploaded PDF: "${fileName}" (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`, colors.blue);
+
     const pages = await renderPdfPagesToImages(req.file.buffer, 150);
+    logState('PDF', '✓', `Rendered ${pages.length} pages to high-res images`, colors.green);
+
     const pagesList = pages.map(p => ({
       name: p.name,
       dataUrl: p.dataUrl
@@ -129,7 +195,7 @@ app.post('/api/upload-pdf', upload.single('file'), async (req, res) => {
       pages: pagesList
     });
   } catch (err) {
-    console.error('Error parsing PDF:', err);
+    logState('PDF', '✗', `${colors.red}PDF Parsing Error: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -158,7 +224,7 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
   try {
     const apiKey = (req.headers['x-gemini-api-key'] || req.body.apiKey || process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) {
-      console.warn('\x1b[31m[OCR Scan] Failed: Missing GEMINI_API_KEY\x1b[0m');
+      logState('GEMINI AI', '✗', `${colors.red}OCR Scan Failed: Missing GEMINI_API_KEY${colors.reset}`, colors.red);
       return res.status(400).json({
         status: 'error',
         message: 'មិនទាន់មាន Gemini API Key នៅឡើយទេ។ សូមបញ្ចូល Gemini API Key របស់អ្នកនៅក្នុងផ្ទាំង Settings ឬក្នុងឯកសារ .env។ (Missing GEMINI_API_KEY)'
@@ -169,7 +235,7 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
     const pagesOption = req.body.pages || 'all';
 
     if (!req.file) {
-      console.warn('\x1b[31m[OCR Scan] Failed: Missing PDF file\x1b[0m');
+      logState('GEMINI AI', '✗', `${colors.red}OCR Scan Failed: Missing file${colors.reset}`, colors.red);
       return res.status(400).json({ status: 'error', message: 'Missing PDF file' });
     }
 
@@ -177,16 +243,13 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
     const isDocx = fileName.toLowerCase().endsWith('.docx') ||
                    (req.file.mimetype && req.file.mimetype.includes('wordprocessingml'));
 
-    console.log('\n\x1b[36m' + '='.repeat(68) + '\x1b[0m');
-    console.log(`⚡ \x1b[1m\x1b[33m[START SCAN & TRANSLATE]\x1b[0m ${new Date().toLocaleTimeString()}`);
-    console.log(`📄 File: \x1b[32m${fileName}\x1b[0m (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
-    console.log(`🌐 Language: \x1b[35m${langOption}\x1b[0m | Target Pages: \x1b[36m${pagesOption}\x1b[0m | Format: \x1b[34m${isDocx ? 'Word (.docx)' : 'PDF (.pdf)'}\x1b[0m`);
+    logState('GEMINI AI', '👁️', `Starting Vision OCR on ${colors.bright}"${fileName}"${colors.reset} (Lang: ${langOption}, Target: ${pagesOption}, Format: ${isDocx ? 'Word' : 'PDF'})`, colors.magenta);
 
     const renderStartTime = Date.now();
     let allPages = [];
 
     if (isDocx) {
-      console.log('🔄 Extracting images directly from Word .docx file (JSZip OpenXML)...');
+      logState('DOCX', '🔄', `Extracting images directly from Word .docx file (OpenXML)...`, colors.cyan);
       const zip = await JSZip.loadAsync(req.file.buffer);
       let orderedMediaFiles = [];
 
@@ -240,12 +303,12 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
         });
       }
     } else {
-      console.log('🔄 Rendering PDF pages to Vision images (150 DPI)...');
+      logState('PDF', '🔄', `Rendering PDF pages to Vision images (150 DPI)...`, colors.cyan);
       allPages = await renderPdfPagesToImages(req.file.buffer, 150);
     }
 
     const totalPages = allPages.length;
-    console.log(`✓ Loaded \x1b[32m${totalPages}\x1b[0m page(s) in \x1b[33m${((Date.now() - renderStartTime) / 1000).toFixed(2)}s\x1b[0m`);
+    logState('PDF', '✓', `Loaded ${totalPages} page(s) in ${((Date.now() - renderStartTime) / 1000).toFixed(2)}s`, colors.green);
 
     let targetPageIndices = [];
     if (pagesOption === 'all') {
@@ -264,8 +327,7 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
       }
     }
 
-    console.log(`🎯 Pages to scan: \x1b[33m[${targetPageIndices.map(i => i + 1).join(', ')}]\x1b[0m (Total: ${targetPageIndices.length})`);
-    console.log('\x1b[36m' + '-'.repeat(68) + '\x1b[0m');
+    logState('GEMINI AI', '🎯', `Pages queued to scan: [${targetPageIndices.map(i => i + 1).join(', ')}] (Total: ${targetPageIndices.length})`, colors.magenta);
 
     const ocrResults = [];
     const BATCH_SIZE = 3; // Scan 3 pages concurrently for optimal throughput without API timeout
@@ -276,7 +338,7 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
       const batchIndices = targetPageIndices.slice(i, i + BATCH_SIZE);
       const batchPageNums = batchIndices.map(idx => idx + 1);
 
-      console.log(`🚀 [Batch ${currentBatchNum}/${totalBatches}] Processing Page(s): \x1b[36m[${batchPageNums.join(', ')}]\x1b[0m`);
+      logState('GEMINI AI', '🚀', `[Batch ${currentBatchNum}/${totalBatches}] Processing Page(s): [${batchPageNums.join(', ')}]`, colors.magenta);
 
       const batchPromises = batchIndices.map(async (pIdx, offset) => {
         if (offset > 0) {
@@ -288,7 +350,7 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
           const pageResults = await scanOcrImage(apiKey, pageObj.buffer, pageNum, langOption, isMangaDirect);
           return { pageNum, results: pageResults || [] };
         } catch (pageErr) {
-          console.error(`\x1b[31m   ✗ [Page ${pageNum}] OCR Error: ${pageErr.message}\x1b[0m`);
+          logState('GEMINI AI', '✗', `${colors.red}[Page ${pageNum}] OCR Error: ${pageErr.message}${colors.reset}`, colors.red);
           throw pageErr;
         }
       });
@@ -301,11 +363,7 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
     }
 
     const totalDuration = ((Date.now() - scanStartTime) / 1000).toFixed(2);
-    console.log('\x1b[36m' + '-'.repeat(68) + '\x1b[0m');
-    console.log(`🎉 \x1b[1m\x1b[32m[SCAN & TRANSLATE COMPLETE]\x1b[0m`);
-    console.log(`📊 Scanned Pages: \x1b[32m${targetPageIndices.length}\x1b[0m | Total Dialogues Extracted: \x1b[33m${ocrResults.length}\x1b[0m`);
-    console.log(`⏱️ Total Time Elapsed: \x1b[32m${totalDuration}s\x1b[0m`);
-    console.log('\x1b[36m' + '='.repeat(68) + '\x1b[0m\n');
+    logState('GEMINI AI', '✨', `OCR & Translation complete: ${targetPageIndices.length} pages scanned, ${ocrResults.length} dialogues extracted (${totalDuration}s)`, colors.green);
 
     return res.json({
       status: 'success',
@@ -313,7 +371,7 @@ async function handleOcrScan(req, res, isMangaDirect = false) {
     });
   } catch (err) {
     const errorDuration = ((Date.now() - scanStartTime) / 1000).toFixed(2);
-    console.error(`\x1b[31m[OCR Scan Error in ${errorDuration}s]:\x1b[0m`, err.message);
+    logState('GEMINI AI', '✗', `${colors.red}OCR Scan Error (${errorDuration}s): ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 }
@@ -329,6 +387,7 @@ app.post('/api/ai-review', upload.single('file'), async (req, res) => {
   try {
     const apiKey = (req.headers['x-gemini-api-key'] || req.body.apiKey || process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) {
+      logState('GEMINI AI', '✗', `${colors.red}AI Review Failed: Missing GEMINI_API_KEY${colors.reset}`, colors.red);
       return res.status(400).json({
         status: 'error',
         message: 'មិនទាន់មាន Gemini API Key នៅឡើយទេ។ សូមបញ្ចូល Gemini API Key របស់អ្នកនៅក្នុងផ្ទាំង Settings ឬក្នុងឯកសារ .env។'
@@ -343,6 +402,8 @@ app.post('/api/ai-review', upload.single('file'), async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Missing PDF file' });
     }
 
+    logState('GEMINI AI', '✨', `Running AI Review & Proofreading on Page ${pageNum} (${ocrItems.length} phrases)...`, colors.magenta);
+
     const allPages = await renderPdfPagesToImages(req.file.buffer, 150);
     if (pageNum < 1 || pageNum > allPages.length) {
       return res.status(400).json({
@@ -354,12 +415,14 @@ app.post('/api/ai-review', upload.single('file'), async (req, res) => {
     const targetPage = allPages[pageNum - 1];
     const updateResults = await aiReview(apiKey, targetPage.buffer, ocrItems, pageNum);
 
+    logState('GEMINI AI', '✓', `AI Review completed for Page ${pageNum} (${updateResults.length} operations)`, colors.green);
+
     return res.json({
       status: 'success',
       results: updateResults
     });
   } catch (err) {
-    console.error('Error in AI review:', err);
+    logState('GEMINI AI', '✗', `${colors.red}AI Review Error: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -375,24 +438,26 @@ app.post('/api/manga/fetch', upload.none(), async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Missing manga link or ID' });
     }
 
+    logState('MANGA', '🔍', `User fetching manga URL: "${urlOrId.slice(0, 80)}"`, colors.cyan);
+
     const isWebUrl = urlOrId.startsWith('http://') || urlOrId.startsWith('https://');
     const isMangaDex = urlOrId.includes('mangadex.org');
 
+    let mangaData;
     if (isWebUrl && !isMangaDex) {
-      const mangaData = await fetchUniversalManga(urlOrId);
-      return res.json({
-        status: 'success',
-        manga: mangaData
-      });
+      mangaData = await fetchUniversalManga(urlOrId);
+    } else {
+      mangaData = await fetchMangaDex(urlOrId);
     }
 
-    const mangaData = await fetchMangaDex(urlOrId);
+    logState('MANGA', '✓', `Found "${mangaData.title}" (${(mangaData.chapters || []).length} chapters)`, colors.green);
+
     return res.json({
       status: 'success',
       manga: mangaData
     });
   } catch (err) {
-    console.error('Error fetching manga:', err);
+    logState('MANGA', '✗', `${colors.red}Error fetching manga: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -408,23 +473,24 @@ app.post('/api/manga/download-chapter', upload.none(), async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Missing chapter ID' });
     }
 
+    logState('MANGA', '📥', `Downloading chapter ID: ${chapterId.slice(0, 32)}...`, colors.cyan);
+
+    let pages;
     if (chapterId.startsWith('http://') || chapterId.startsWith('https://')) {
-      const pages = await downloadUniversalChapter(chapterId);
-      return res.json({
-        status: 'success',
-        chapter_id: chapterId,
-        pages
-      });
+      pages = await downloadUniversalChapter(chapterId);
+    } else {
+      pages = await downloadMangaDexChapter(chapterId);
     }
 
-    const pages = await downloadMangaDexChapter(chapterId);
+    logState('MANGA', '✓', `Downloaded ${pages.length} pages for chapter ${chapterId.slice(0, 16)}...`, colors.green);
+
     return res.json({
       status: 'success',
       chapter_id: chapterId,
       pages
     });
   } catch (err) {
-    console.error('Error downloading chapter:', err);
+    logState('MANGA', '✗', `${colors.red}Error downloading chapter: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -444,13 +510,15 @@ app.post('/api/manga/generate-zip', upload.none(), async (req, res) => {
     const mangaTitle = req.body.manga_title || 'manga_download';
     const safeName = mangaTitle.replace(/[^\w\s\-().\u1780-\u17FF]/g, '_').replace(/\s+/g, ' ').trim() || 'manga_download';
 
+    logState('ZIP', '📦', `Packing ZIP archive: "${safeName}.zip" (${filesData.length} images)...`, colors.yellow);
+
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"; filename*=UTF-8''${encodeURIComponent(safeName)}.zip`);
 
     const archiveStream = createZipStream(filesData);
     archiveStream.pipe(res);
   } catch (err) {
-    console.error('Error generating ZIP:', err);
+    logState('ZIP', '✗', `${colors.red}Error generating ZIP: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -470,6 +538,8 @@ app.post('/api/manga/generate-docx', upload.none(), async (req, res) => {
     const mangaTitle = req.body.manga_title || 'manga_chapter';
     const safeName = mangaTitle.replace(/[^\w\s\-().\u1780-\u17FF]/g, '_').replace(/\s+/g, ' ').trim() || 'manga_chapter';
 
+    logState('DOCX', '📝', `Compiling Manga Word document: "${safeName}.docx" (${filesData.length} pages)...`, colors.blue);
+
     const imageItems = filesData.map(f => {
       let b64 = f.dataUrl || '';
       if (b64.includes(',')) b64 = b64.split(',')[1];
@@ -488,12 +558,13 @@ app.post('/api/manga/generate-docx', upload.none(), async (req, res) => {
     }
 
     const docxBuffer = await generateDocxWithKhmerScript(imageItems, ocrItems, mangaTitle);
+    logState('DOCX', '✓', `Manga DOCX created (${(docxBuffer.length / 1024).toFixed(1)} KB)`, colors.green);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"; filename*=UTF-8''${encodeURIComponent(safeName)}.docx`);
     return res.send(docxBuffer);
   } catch (err) {
-    console.error('Error generating Manga DOCX:', err);
+    logState('DOCX', '✗', `${colors.red}Error generating Manga DOCX: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -513,6 +584,8 @@ app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
     const ocrItems = JSON.parse(ocrItemsStr);
     const title = req.body.title || 'Document';
 
+    logState('DOCX', '🎨', `Generating Word (.docx) with editable Khmer shapes: "${title}" (${files.length} uploaded file/pages, ${ocrItems.length} transcript items)`, colors.blue);
+
     let pageImages = [];
     const firstFile = files[0];
     const isDocx = files.length === 1 && (
@@ -530,7 +603,6 @@ app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
       const zip = await JSZip.loadAsync(firstFile.buffer);
       let orderedMediaFiles = [];
 
-      // 1. Build Relationship map from word/_rels/document.xml.rels
       const relsMap = {};
       const relsFile = zip.file('word/_rels/document.xml.rels');
       if (relsFile) {
@@ -546,7 +618,6 @@ app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
         }
       }
 
-      // 2. Extract in strict sequential page order from word/document.xml
       const docFile = zip.file('word/document.xml');
       if (docFile) {
         const docXml = await docFile.async('text');
@@ -601,11 +672,13 @@ app.post('/api/generate-docx', upload.array('images'), async (req, res) => {
       docxBuffer = await generateDocxFromImages(pageImages);
     }
 
+    logState('DOCX', '✓', `Khmer Word document created (${(docxBuffer.length / 1024).toFixed(1)} KB)`, colors.green);
+
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(title || 'document')}.docx"`);
     return res.send(docxBuffer);
   } catch (err) {
-    console.error('Error generating DOCX:', err);
+    logState('DOCX', '✗', `${colors.red}Error generating DOCX: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -624,17 +697,17 @@ app.post('/api/apply-khmer-pdf', upload.single('file'), async (req, res) => {
     const ocrItemsStr = req.body.ocr_items || '[]';
     const ocrItems = JSON.parse(ocrItemsStr);
 
-    console.log(`\x1b[35m🎨 [APPLY KHMER OVERLAY] Processing ${ocrItems.length} translated items onto PDF...\x1b[0m`);
+    logState('OVERLAY', '🎨', `Applying Khmer speech bubbles overlay to PDF (${ocrItems.length} items)...`, colors.cyan);
     const startTime = Date.now();
     const finalPdfBuffer = await applyKhmerOverlayToPdf(req.file.buffer, ocrItems);
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`\x1b[32m✨ [APPLY KHMER OVERLAY] PDF created successfully (${duration}s, size: ${(finalPdfBuffer.length / (1024 * 1024)).toFixed(2)} MB)\x1b[0m`);
+    logState('OVERLAY', '✨', `PDF overlay applied successfully (${duration}s, size: ${(finalPdfBuffer.length / (1024 * 1024)).toFixed(2)} MB)`, colors.green);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="manga_khmer_translated.pdf"');
     return res.send(finalPdfBuffer);
   } catch (err) {
-    console.error('Error applying Khmer text to PDF:', err);
+    logState('OVERLAY', '✗', `${colors.red}Error applying Khmer text to PDF: ${err.message}${colors.reset}`, colors.red);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
@@ -643,7 +716,7 @@ app.post('/api/apply-khmer-pdf', upload.single('file'), async (req, res) => {
 
 // Global Error Handler (Always return JSON instead of HTML error pages)
 app.use((err, req, res, next) => {
-  console.error('[Server Global Error]:', err);
+  logState('ERROR', '💥', `${colors.red}[Server Global Error]: ${err.message}${colors.reset}`, colors.red);
   return res.status(err.status || 500).json({
     status: 'error',
     message: err.message || 'Internal Server Error'
@@ -651,6 +724,13 @@ app.use((err, req, res, next) => {
 });
 
 // Start Express Server
-app.listen(PORT, () => {
-  console.log(`PDF Creator Node.js Server is running on http://127.0.0.1:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n${colors.bright}${colors.green}====================================================${colors.reset}`);
+    console.log(`  🚀 ${colors.bright}PDF Creator Server running on http://127.0.0.1:${PORT}${colors.reset}`);
+    console.log(`  📊 Real-time User Activity & State Logging: ${colors.green}ACTIVE${colors.reset}`);
+    console.log(`${colors.bright}${colors.green}====================================================${colors.reset}\n`);
+  });
+}
+
+module.exports = app;

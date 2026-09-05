@@ -3,7 +3,7 @@ const { scanOcrImage, aiReview } = require('../src/services/geminiService');
 async function runGeminiTests() {
   console.log('\n--- [TEST SUITE 3] Gemini Vision & AI Review Features ---');
 
-  // 1. Test error handling when API key is missing or invalid
+  // 4. Test error handling when API key is missing or invalid
   try {
     const dummyBuffer = Buffer.from('fake-image-bytes');
     await scanOcrImage('invalid-key-test', dummyBuffer, 1, 'auto', false);
@@ -11,7 +11,7 @@ async function runGeminiTests() {
     console.log('✓ scanOcrImage error handled expectedly on bad key:', err.message);
   }
 
-  // 2. Test AI review error handling on invalid key
+  // 5. Test AI review error handling on invalid key
   try {
     const dummyBuffer = Buffer.from('fake-image-bytes');
     await aiReview('invalid-key-test', dummyBuffer, [{ id: 'L1', lineText: 'Test' }], 1);

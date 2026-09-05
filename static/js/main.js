@@ -14,10 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const dbName = "PdfOcrScannerDB";
     const storeName = "images";
     const pdfStoreName = "pdf_files";
+    const fastQueueStoreName = "fast_queue_items";
 
     function openDB() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(dbName, 2);
+            const request = indexedDB.open(dbName, 3);
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
                 if (!db.objectStoreNames.contains(storeName)) {
@@ -26,10 +27,96 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!db.objectStoreNames.contains(pdfStoreName)) {
                     db.createObjectStore(pdfStoreName, { keyPath: "id", autoIncrement: true });
                 }
+                if (!db.objectStoreNames.contains(fastQueueStoreName)) {
+                    db.createObjectStore(fastQueueStoreName, { keyPath: "id" });
+                }
             };
             request.onsuccess = (e) => resolve(e.target.result);
             request.onerror = (e) => reject(e.target.error);
         });
+    }
+
+    async function saveFastQueueItemToDB(item) {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(fastQueueStoreName, "readwrite");
+            const store = tx.objectStore(fastQueueStoreName);
+            return new Promise((resolve, reject) => {
+                const req = store.put(item);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        } catch (err) {
+            console.error("IndexedDB Save Fast Item Error:", err);
+        }
+    }
+
+    async function loadFastQueueFromDB() {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(fastQueueStoreName, "readonly");
+            const store = tx.objectStore(fastQueueStoreName);
+            return new Promise((resolve) => {
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => resolve([]);
+            });
+        } catch (err) {
+            console.error("IndexedDB Load Fast Queue Error:", err);
+            return [];
+        }
+    }
+
+    async function updateFastQueueItemInDB(id, updates) {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(fastQueueStoreName, "readwrite");
+            const store = tx.objectStore(fastQueueStoreName);
+            const item = await new Promise((res, rej) => {
+                const r = store.get(id);
+                r.onsuccess = () => res(r.result);
+                r.onerror = () => rej(r.error);
+            });
+            if (!item) return;
+            const updated = { ...item, ...updates };
+            return new Promise((res, rej) => {
+                const r = store.put(updated);
+                r.onsuccess = () => res(updated);
+                r.onerror = () => rej(r.error);
+            });
+        } catch (err) {
+            console.error("IndexedDB Update Fast Item Error:", err);
+        }
+    }
+
+    async function deleteFastQueueItemFromDB(id) {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(fastQueueStoreName, "readwrite");
+            const store = tx.objectStore(fastQueueStoreName);
+            return new Promise((resolve, reject) => {
+                const req = store.delete(id);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (err) {
+            console.error("IndexedDB Delete Fast Item Error:", err);
+        }
+    }
+
+    async function clearFastQueueFromDB() {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(fastQueueStoreName, "readwrite");
+            const store = tx.objectStore(fastQueueStoreName);
+            return new Promise((resolve, reject) => {
+                const req = store.clear();
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (err) {
+            console.error("IndexedDB Clear Fast Queue Error:", err);
+        }
     }
 
     async function saveImagesToDB(imagesList) {
@@ -319,6 +406,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const ocrProgressBar = document.getElementById('ocr-progress-bar');
     const ocrProgressPercent = document.getElementById('ocr-progress-percent');
     const ocrStatusText = document.getElementById('ocr-status-text');
+    const btnOcrCancel = document.getElementById('btn-ocr-cancel');
+    let ocrAbortController = null;
+    let isOcrCancelled = false;
+
+    if (btnOcrCancel) {
+        btnOcrCancel.addEventListener('click', () => {
+            isOcrCancelled = true;
+            if (ocrAbortController) {
+                try { ocrAbortController.abort(); } catch (e) {}
+            }
+            if (ocrStatusText) ocrStatusText.textContent = '⚠️ បានបោះបង់ដំណើរការ (Cancelled)...';
+            if (ocrProgressBar) ocrProgressBar.style.width = '0%';
+            if (ocrProgressPercent) ocrProgressPercent.textContent = '0%';
+            setTimeout(() => {
+                if (ocrProgressContainer) ocrProgressContainer.classList.add('hidden');
+                if (btnScan) btnScan.disabled = false;
+                if (btnAiReview) btnAiReview.disabled = (ocrResults.length === 0);
+                if (btnApplyKhmerPdf) btnApplyKhmerPdf.disabled = false;
+            }, 300);
+        });
+    }
+
     const ocrEmptyTableState = document.getElementById('ocr-empty-table-state');
     const btnCopyText = document.getElementById('btn-copy-text');
     const btnSaveTxt = document.getElementById('btn-save-txt');
@@ -732,6 +841,9 @@ document.addEventListener('DOMContentLoaded', () => {
         currentPdfBlob = pdfBlob;
         activePdfFile = { name: pdfName, blob: pdfBlob };
         
+        isOcrCancelled = false;
+        ocrAbortController = new AbortController();
+
         // Show progress bar container
         ocrProgressContainer.classList.remove('hidden');
         ocrProgressBar.style.width = '0%';
@@ -766,9 +878,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/scan-ocr-pdf', {
                 method: 'POST',
                 headers: headers,
-                body: formData
+                body: formData,
+                signal: ocrAbortController.signal
             });
             
+            if (isOcrCancelled) return;
+
             const text = await response.text();
             let data;
             try {
@@ -804,6 +919,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             ocrProgressContainer.classList.add('hidden');
             btnScan.disabled = false;
+            if (err.name === 'AbortError' || isOcrCancelled) {
+                console.log('OCR Scanning cancelled by user.');
+                return;
+            }
             console.error(err);
             alert('មានបញ្ហាក្នុងការស្កែនអត្ថបទ៖ ' + err.message);
         }
@@ -1329,6 +1448,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        isOcrCancelled = false;
+        ocrAbortController = new AbortController();
+
         // Show progress bar container
         ocrProgressContainer.classList.remove('hidden');
         ocrProgressBar.style.width = '5%';
@@ -1359,6 +1481,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const startTime = Date.now();
         const progressInterval = setInterval(() => {
+            if (isOcrCancelled) {
+                clearInterval(progressInterval);
+                return;
+            }
             const elapsedSec = (Date.now() - startTime) / 1000;
             // Smooth logarithmic progress curve based on real estimated workload
             const targetPct = Math.min(95, Math.floor(95 * (1 - Math.exp(-elapsedSec / (estimatedSeconds * 0.55)))));
@@ -1392,10 +1518,12 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/scan-ocr-pdf', {
             method: 'POST',
             headers: headers,
-            body: formData
+            body: formData,
+            signal: ocrAbortController.signal
         })
         .then(async res => {
             const text = await res.text();
+            if (isOcrCancelled) return;
             let data;
             try {
                 data = JSON.parse(text);
@@ -1409,6 +1537,7 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .then(data => {
             clearInterval(progressInterval);
+            if (isOcrCancelled || !data) return;
             if (data.status === 'success' && data.results) {
                 // Clear previous delete timers to prevent memory leaks
                 ocrResults.forEach(r => { if (r.deleteTimer) clearInterval(r.deleteTimer); });
@@ -1434,7 +1563,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 ocrProgressBar.style.width = '100%';
                 ocrProgressPercent.textContent = '100%';
-                ocrStatusText.textContent = 'ស្កែនអត្ថបទបានជោគជ័យ!';
+                ocrStatusText.textContent = 'ស្កែនអក្សរបានជោគជ័យ!';
 
                 logActivityEntry({
                     type: 'ocr',
@@ -1455,6 +1584,10 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(progressInterval);
             ocrProgressContainer.classList.add('hidden');
             btnScan.disabled = false;
+            if (err.name === 'AbortError' || isOcrCancelled) {
+                console.log('OCR Scanning aborted by user.');
+                return;
+            }
             console.error(err);
             alert('មានបញ្ហាក្នុងការស្កែនអត្ថបទ៖\n' + err.message);
         });
@@ -1865,6 +1998,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        isOcrCancelled = false;
+        ocrAbortController = new AbortController();
+
         // Show progress container
         ocrProgressContainer.classList.remove('hidden');
         ocrProgressBar.style.width = '20%';
@@ -1888,9 +2024,11 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/ai-review', {
             method: 'POST',
             headers: headers,
-            body: formData
+            body: formData,
+            signal: ocrAbortController.signal
         })
         .then(res => {
+            if (isOcrCancelled) return;
             if (!res.ok) {
                 return res.json().then(err => {
                     throw new Error(err.message || 'Server error calling AI Review');
@@ -1899,6 +2037,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return res.json();
         })
         .then(data => {
+            if (isOcrCancelled || !data) return;
             if (data.status === 'success' && data.results) {
                 let pageItems = ocrResults.filter(r => r.pageNum === currentPage);
                 
@@ -1963,6 +2102,10 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(err => {
             ocrProgressContainer.classList.add('hidden');
             btnAiReview.disabled = false;
+            if (err.name === 'AbortError' || isOcrCancelled) {
+                console.log('AI Review cancelled by user.');
+                return;
+            }
             console.error(err);
             alert('មានបញ្ហាក្នុងការផ្ទៀងផ្ទាត់ជាមួយ AI៖\n' + err.message);
         });
@@ -1979,6 +2122,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('⚠️ មិនទាន់មានអត្ថបទបកប្រែនៅក្នុងតារាងនៅឡើយទេ។ សូមចុច "Start Scan Text & Translate" ជាមុនសិន!');
                 return;
             }
+
+            isOcrCancelled = false;
+            ocrAbortController = new AbortController();
 
             // Show progress
             ocrProgressContainer.classList.remove('hidden');
@@ -2004,6 +2150,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Smooth progress animation
             let currentP = 20;
             const timer = setInterval(() => {
+                if (isOcrCancelled) {
+                    clearInterval(timer);
+                    return;
+                }
                 if (currentP < 90) {
                     currentP += 8;
                     ocrProgressBar.style.width = `${currentP}%`;
@@ -2019,10 +2169,13 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const res = await fetch('/api/generate-docx', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    signal: ocrAbortController.signal
                 });
 
                 clearInterval(timer);
+
+                if (isOcrCancelled) return;
 
                 if (!res.ok) {
                     let errMsg = `Server error (${res.status})`;
@@ -2067,6 +2220,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 ocrProgressContainer.classList.add('hidden');
                 btnApplyKhmerPdf.disabled = false;
                 if (btnScan) btnScan.disabled = false;
+                if (err.name === 'AbortError' || isOcrCancelled) {
+                    console.log('Docx generation cancelled by user.');
+                    return;
+                }
                 console.error(err);
                 alert('កំហុសក្នុងការបង្កើតឯកសារ Word ភាសាខ្មែរ៖\n' + err.message);
             }
@@ -2295,10 +2452,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const drawerClose = document.getElementById('drawer-close');
     const drawerOverlay = document.getElementById('drawer-overlay');
     const sidebarDrawer = document.getElementById('sidebar-drawer');
+    const navCreateFast = document.getElementById('nav-create-fast');
     const navPdfCreator = document.getElementById('nav-pdf-creator');
     const navMangaDownloader = document.getElementById('nav-manga-downloader');
     const navHistory = document.getElementById('nav-history');
     
+    const viewCreateFast = document.getElementById('view-create-fast');
     const viewPdfCreator = document.getElementById('view-pdf-creator');
     const viewMangaDownloader = document.getElementById('view-manga-downloader');
     const viewHistory = document.getElementById('view-history');
@@ -2326,18 +2485,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Switch view
     function switchView(viewName) {
+        if (viewCreateFast) viewCreateFast.classList.add('hidden');
         if (viewPdfCreator) viewPdfCreator.classList.add('hidden');
         if (viewMangaDownloader) viewMangaDownloader.classList.add('hidden');
         if (viewHistory) viewHistory.classList.add('hidden');
 
-        [navPdfCreator, navMangaDownloader, navHistory].forEach(n => {
+        [navCreateFast, navPdfCreator, navMangaDownloader, navHistory].forEach(n => {
             if (n) {
-                n.classList.remove('bg-brand-50', 'dark:bg-brand-950/40', 'text-brand-600', 'dark:text-brand-400');
+                n.classList.remove('bg-amber-50', 'dark:bg-amber-950/40', 'text-amber-600', 'dark:text-amber-400', 'bg-brand-50', 'dark:bg-brand-950/40', 'text-brand-600', 'dark:text-brand-400');
                 n.classList.add('hover:bg-slate-50', 'dark:hover:bg-slate-800', 'text-slate-600', 'dark:text-slate-400');
             }
         });
 
-        if (viewName === 'pdf-creator') {
+        if (viewName === 'create-fast') {
+            if (viewCreateFast) viewCreateFast.classList.remove('hidden');
+            if (navCreateFast) {
+                navCreateFast.classList.add('bg-amber-50', 'dark:bg-amber-950/40', 'text-amber-600', 'dark:text-amber-400');
+                navCreateFast.classList.remove('hover:bg-slate-50', 'dark:hover:bg-slate-800', 'text-slate-600', 'dark:text-slate-400');
+            }
+            if (typeof renderFastQueue === 'function') {
+                renderFastQueue();
+            }
+        } else if (viewName === 'pdf-creator') {
             if (viewPdfCreator) viewPdfCreator.classList.remove('hidden');
             if (navPdfCreator) {
                 navPdfCreator.classList.add('bg-brand-50', 'dark:bg-brand-950/40', 'text-brand-600', 'dark:text-brand-400');
@@ -2363,6 +2532,7 @@ document.addEventListener('DOMContentLoaded', () => {
         lucide.createIcons();
     }
 
+    if (navCreateFast) navCreateFast.addEventListener('click', () => switchView('create-fast'));
     navPdfCreator.addEventListener('click', () => switchView('pdf-creator'));
     navMangaDownloader.addEventListener('click', () => switchView('manga-downloader'));
     if (navHistory) navHistory.addEventListener('click', () => switchView('history'));
@@ -2399,6 +2569,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const mangaDownloadPercent = document.getElementById('manga-download-percent');
     const mangaDownloadBar = document.getElementById('manga-download-bar');
     const mangaDownloadDetails = document.getElementById('manga-download-details');
+    const btnMangaCancelDownload = document.getElementById('btn-manga-cancel-download');
     
     const btnMangaDownloadDocx = document.getElementById('btn-manga-download-docx');
     const btnMangaDownloadZip = document.getElementById('btn-manga-download-zip');
@@ -2409,6 +2580,29 @@ document.addEventListener('DOMContentLoaded', () => {
     let downloadedPagesMap = new Map(); 
     let isMangaSortAscending = true;
     let mangaSearchQuery = '';
+    let mangaAbortController = null;
+    let isMangaDownloadCancelled = false;
+
+    if (btnMangaCancelDownload) {
+        btnMangaCancelDownload.addEventListener('click', () => {
+            isMangaDownloadCancelled = true;
+            if (mangaAbortController) {
+                try { mangaAbortController.abort(); } catch (e) {}
+            }
+            if (mangaDownloadStatus) {
+                mangaDownloadStatus.innerHTML = `<i data-lucide="x-circle" class="w-3.5 h-3.5 text-rose-500"></i> បានបោះបង់ដំណើរការ!`;
+            }
+            if (mangaDownloadDetails) {
+                mangaDownloadDetails.textContent = `បានបញ្ឈប់ដំណើរការដោយជោគជ័យ។`;
+            }
+            lucide.createIcons();
+
+            if (btnMangaFetch) btnMangaFetch.disabled = false;
+            if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = !selectedChaptersList.size;
+            if (btnMangaDownloadZip) btnMangaDownloadZip.disabled = !selectedChaptersList.size;
+            if (btnMangaImportPdf) btnMangaImportPdf.disabled = !selectedChaptersList.size;
+        });
+    }
 
     // Filter & Sort Engine for Chapters
     function getFilteredAndSortedChapters() {
@@ -2650,25 +2844,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!mangaVolCalcText) return;
         const count = selectedChaptersList.size;
         const chunkSize = Math.max(1, parseInt(mangaVolChunkSize?.value) || 10);
-        const mode = document.querySelector('input[name="manga-pdf-mode"]:checked')?.value || 'combine';
+        const mode = document.querySelector('input[name="manga-pdf-mode"]:checked')?.value || 'separate';
         
         if (mangaVolOptionsBox) {
             mangaVolOptionsBox.classList.toggle('hidden', mode !== 'combine');
         }
         
         if (mode === 'separate') {
-            mangaVolCalcText.textContent = `ជ្រើស ${count} ភាគ ➔ បង្កើតបាន ${count} ឯកសារ PDF (១ ភាគ = ១ PDF)`;
+            mangaVolCalcText.textContent = `ជ្រើស ${count} ភាគ ➔ បង្កើតបាន ${count} ឯកសារ (១ ភាគ = ១ ឯកសារ)`;
             return;
         }
 
         if (count === 0) {
-            mangaVolCalcText.textContent = `ជ្រើស 0 ភាគ ➔ បង្កើត 0 សៀវភៅ PDF`;
+            mangaVolCalcText.textContent = `ជ្រើស 0 ភាគ ➔ បង្កើត 0 ឯកសារ`;
             return;
         }
 
         const volumes = Math.ceil(count / chunkSize);
         if (volumes === 1) {
-            mangaVolCalcText.textContent = `ជ្រើស ${count} ភាគ ➔ បង្កើតបាន ១ សៀវភៅ PDF តែមួយ (Volume)`;
+            mangaVolCalcText.textContent = `ជ្រើស ${count} ភាគ ➔ បង្កើតបាន ១ ឯកសាររួមតែមួយ`;
         } else {
             mangaVolCalcText.textContent = `ជ្រើស ${count} ភាគ ➔ បង្កើតបាន ${volumes} សៀវភៅ PDF (១ PDF = ~${chunkSize} ភាគ)`;
         }
@@ -2784,10 +2978,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // High-Speed Concurrent chapter downloads (Multi-Worker Pool)
     async function startChaptersDownloadSequence() {
+        isMangaDownloadCancelled = false;
+        mangaAbortController = new AbortController();
+
         mangaDownloadProgressContainer.classList.remove('hidden');
         btnMangaFetch.disabled = true;
         btnMangaDownloadZip.disabled = true;
         btnMangaImportPdf.disabled = true;
+        if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = true;
 
         const queue = Array.from(selectedChaptersList);
         const total = queue.length;
@@ -2800,11 +2998,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         async function worker() {
             while (queueIndex < total) {
+                if (isMangaDownloadCancelled) break;
                 const currentIndex = queueIndex++;
                 const uuid = queue[currentIndex];
                 const chCard = document.querySelector(`.chapter-card[data-id="${uuid}"]`);
                 const chLabel = chCard ? (chCard.querySelector('.font-bold')?.textContent || `Chapter ${currentIndex+1}`) : `Chapter ${currentIndex+1}`;
 
+                if (isMangaDownloadCancelled) break;
                 mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងទាញយក (${completed + 1}/${total}): ${chLabel}...`;
                 lucide.createIcons();
 
@@ -2814,14 +3014,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const response = await fetch('/api/manga/download-chapter', {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        signal: mangaAbortController.signal
                     });
+
+                    if (isMangaDownloadCancelled) break;
 
                     if (!response.ok) {
                         throw new Error(`Server returned code ${response.status}`);
                     }
 
                     const data = await response.json();
+                    if (isMangaDownloadCancelled) break;
+
                     if (data.status === 'success' && data.pages.length > 0) {
                         downloadedPagesMap.set(uuid, data.pages);
                         if (chCard) {
@@ -2832,13 +3037,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
                 } catch (err) {
+                    if (err.name === 'AbortError' || isMangaDownloadCancelled) {
+                        break;
+                    }
                     console.error(`Error downloading chapter ${uuid}:`, err);
                 } finally {
-                    completed++;
-                    const pct = Math.round((completed / total) * 100);
-                    mangaDownloadBar.style.width = `${pct}%`;
-                    mangaDownloadPercent.textContent = `${pct}%`;
-                    mangaDownloadDetails.textContent = `បានទាញយក ${completed}/${total} ជំពូក (${downloadedPagesMap.size} ជោគជ័យ)`;
+                    if (!isMangaDownloadCancelled) {
+                        completed++;
+                        const pct = Math.round((completed / total) * 100);
+                        mangaDownloadBar.style.width = `${pct}%`;
+                        mangaDownloadPercent.textContent = `${pct}%`;
+                        mangaDownloadDetails.textContent = `បានទាញយក ${completed}/${total} ជំពូក (${downloadedPagesMap.size} ជោគជ័យ)`;
+                    }
                 }
             }
         }
@@ -2848,6 +3058,17 @@ document.addEventListener('DOMContentLoaded', () => {
             workers.push(worker());
         }
         await Promise.all(workers);
+
+        if (isMangaDownloadCancelled) {
+            mangaDownloadStatus.innerHTML = `<i data-lucide="x-circle" class="w-3.5 h-3.5 text-rose-500"></i> បានបោះបង់ការទាញយក!`;
+            mangaDownloadDetails.textContent = `បានបញ្ឈប់ដំណើរការទាញយក (ទាញយកបាន ${downloadedPagesMap.size} ជំពូក)។`;
+            lucide.createIcons();
+            btnMangaFetch.disabled = false;
+            if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = !selectedChaptersList.size;
+            btnMangaDownloadZip.disabled = !selectedChaptersList.size;
+            btnMangaImportPdf.disabled = !selectedChaptersList.size;
+            return false;
+        }
 
         // Complete Progress
         mangaDownloadBar.style.width = '100%';
@@ -2860,24 +3081,31 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnMangaDownloadDocx) btnMangaDownloadDocx.disabled = false;
         btnMangaDownloadZip.disabled = false;
         btnMangaImportPdf.disabled = false;
+        return true;
     }
 
     // DOCX Compiler trigger
     if (btnMangaDownloadDocx) {
         btnMangaDownloadDocx.addEventListener('click', async () => {
             if (downloadedPagesMap.size === 0) {
-                await startChaptersDownloadSequence();
+                const ok = await startChaptersDownloadSequence();
+                if (!ok || isMangaDownloadCancelled) return;
             }
-            await downloadDocxFile();
+            if (downloadedPagesMap.size > 0 && !isMangaDownloadCancelled) {
+                await downloadDocxFile();
+            }
         });
     }
 
     // ZIP Compiler trigger
     btnMangaDownloadZip.addEventListener('click', async () => {
         if (downloadedPagesMap.size === 0) {
-            await startChaptersDownloadSequence();
+            const ok = await startChaptersDownloadSequence();
+            if (!ok || isMangaDownloadCancelled) return;
         }
-        await downloadZipFile();
+        if (downloadedPagesMap.size > 0 && !isMangaDownloadCancelled) {
+            await downloadZipFile();
+        }
     });
 
     function buildMangaCustomBaseName(mangaTitle, chapterEntries) {
@@ -2895,6 +3123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function downloadZipFile() {
+        if (isMangaDownloadCancelled || downloadedPagesMap.size === 0) return;
         mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងរៀបចំឯកសារ ZIP...`;
         lucide.createIcons();
 
@@ -2933,6 +3162,9 @@ document.addEventListener('DOMContentLoaded', () => {
         btnMangaDownloadZip.disabled = true;
 
         try {
+            isMangaDownloadCancelled = false;
+            mangaAbortController = new AbortController();
+
             const customBaseName = buildMangaCustomBaseName(currentMangaData.title, chapterEntries);
             const formData = new FormData();
             formData.append('files', JSON.stringify(allImagesData));
@@ -2940,14 +3172,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const response = await fetch('/api/manga/generate-zip', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                signal: mangaAbortController.signal
             });
+
+            if (isMangaDownloadCancelled) return;
 
             if (!response.ok) {
                 throw new Error(`Server returned code ${response.status}`);
             }
 
             const blob = await response.blob();
+            if (isMangaDownloadCancelled) return;
+
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.style.display = 'none';
@@ -2966,6 +3203,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 details: `ឯកសារ ZIP សម្រាប់កុំព្យូទ័រ`
             });
         } catch (err) {
+            if (err.name === 'AbortError' || isMangaDownloadCancelled) {
+                console.log('ZIP generation cancelled.');
+                return;
+            }
             console.error(err);
             alert('មានបញ្ហាក្នុងការទាញយក ZIP៖ ' + err.message);
             mangaDownloadStatus.innerHTML = `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-500"></i> បរាជ័យក្នុងការពន្លា ZIP`;
@@ -2977,15 +3218,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function downloadDocxFile() {
-        if (!btnMangaDownloadDocx) return;
+        if (!btnMangaDownloadDocx || isMangaDownloadCancelled || downloadedPagesMap.size === 0) return;
         mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងរៀបចំឯកសារ Word (.docx)...`;
         lucide.createIcons();
 
         // Sort downloaded chapters strictly in ascending numerical order
         const chapterEntries = Array.from(downloadedPagesMap.entries()).map(([chUuid, pages]) => {
-            const chCard = document.querySelector(`.chapter-card[data-id="${chUuid}"]`);
-            const chNum = chCard ? parseFloat(chCard.dataset.chapter) : NaN;
-            const chStr = chCard ? (chCard.dataset.chapter || 'ch') : 'ch';
+            const chMeta = currentMangaData?.chapters?.find(c => c.id === chUuid);
+            const chCard = document.querySelector(`.chapter-card[data-id="${CSS.escape ? CSS.escape(chUuid) : chUuid}"]`);
+            const rawCh = chMeta?.chapter || chCard?.dataset?.chapter || 'ch';
+            const chNum = parseFloat(rawCh);
+            const chStr = String(rawCh);
             return { chUuid, pages, chNum, chStr };
         });
 
@@ -2996,17 +3239,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return a.chStr.localeCompare(b.chStr, undefined, { numeric: true });
         });
 
-        const allImagesData = [];
-        chapterEntries.forEach(({ pages, chStr }) => {
-            pages.forEach((p, idx) => {
-                allImagesData.push({
-                    name: `${currentMangaData.title}_Ch_${chStr}_Page_${idx + 1}.${p.name.split('.').pop()}`,
-                    dataUrl: p.dataUrl
-                });
-            });
-        });
-
-        if (allImagesData.length === 0) {
+        if (chapterEntries.length === 0) {
             alert('គ្មានរូបភាពសម្រាប់ទាញយកឡើយ!');
             return;
         }
@@ -3015,60 +3248,139 @@ document.addEventListener('DOMContentLoaded', () => {
         btnMangaDownloadDocx.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Creating DOCX...`;
         btnMangaDownloadDocx.disabled = true;
 
+        const selectedMode = document.querySelector('input[name="manga-pdf-mode"]:checked')?.value || 'separate';
+
         try {
-            const customBaseName = buildMangaCustomBaseName(currentMangaData.title, chapterEntries);
-            const docxName = `${customBaseName}.docx`;
+            isMangaDownloadCancelled = false;
+            mangaAbortController = new AbortController();
 
-            const formData = new FormData();
-            formData.append('files', JSON.stringify(allImagesData));
-            formData.append('manga_title', customBaseName);
+            let lastCreatedDocId = null;
+            let successCount = 0;
 
-            const response = await fetch('/api/manga/generate-docx', {
-                method: 'POST',
-                body: formData
-            });
+            if (selectedMode === 'separate') {
+                // Separate DOCX per chapter (Single Chapter Mode: 1 chapter = 1 .docx file)
+                for (let cIdx = 0; cIdx < chapterEntries.length; cIdx++) {
+                    if (isMangaDownloadCancelled) return;
+                    const { pages, chStr, chNum } = chapterEntries[cIdx];
+                    if (!pages || pages.length === 0) continue;
 
-            if (!response.ok) {
-                throw new Error(`Server returned code ${response.status}`);
+                    const chBaseName = buildMangaCustomBaseName(currentMangaData.title, [{ chStr, chNum }]);
+                    const docxName = `${chBaseName}.docx`;
+
+                    mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងបង្កើត Word (${cIdx + 1}/${chapterEntries.length}) ភាគទី ${chStr}...`;
+                    lucide.createIcons();
+
+                    const singleChapterImages = pages.map((p, idx) => ({
+                        name: `${currentMangaData.title}_Ch_${chStr}_Page_${idx + 1}.${p.name.split('.').pop()}`,
+                        dataUrl: p.dataUrl
+                    }));
+
+                    const formData = new FormData();
+                    formData.append('files', JSON.stringify(singleChapterImages));
+                    formData.append('manga_title', chBaseName);
+
+                    const response = await fetch('/api/manga/generate-docx', {
+                        method: 'POST',
+                        body: formData,
+                        signal: mangaAbortController.signal
+                    });
+
+                    if (isMangaDownloadCancelled) return;
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned code ${response.status} សម្រាប់ភាគ ${chStr}`);
+                    }
+
+                    const blob = await response.blob();
+                    if (isMangaDownloadCancelled) return;
+
+                    // Save DOCX blob directly into IndexedDB library
+                    lastCreatedDocId = await savePdfToDB(docxName, blob);
+                    successCount++;
+                }
+
+            } else {
+                // Combine DOCX into batches
+                const chunkSize = Math.max(1, parseInt(mangaVolChunkSize?.value) || 10);
+                const batches = [];
+                for (let i = 0; i < chapterEntries.length; i += chunkSize) {
+                    batches.push(chapterEntries.slice(i, i + chunkSize));
+                }
+
+                for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+                    if (isMangaDownloadCancelled) return;
+                    const currentBatch = batches[bIdx];
+                    const batchBaseName = buildMangaCustomBaseName(currentMangaData.title, currentBatch);
+                    const docxName = `${batchBaseName}.docx`;
+
+                    const batchImagesData = [];
+                    currentBatch.forEach(({ pages, chStr }) => {
+                        pages.forEach((p, idx) => {
+                            batchImagesData.push({
+                                name: `${currentMangaData.title}_Ch_${chStr}_Page_${idx + 1}.${p.name.split('.').pop()}`,
+                                dataUrl: p.dataUrl
+                            });
+                        });
+                    });
+
+                    if (batchImagesData.length === 0) continue;
+
+                    mangaDownloadStatus.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងបង្កើត Word (${bIdx + 1}/${batches.length}) ${batchBaseName}...`;
+                    lucide.createIcons();
+
+                    const formData = new FormData();
+                    formData.append('files', JSON.stringify(batchImagesData));
+                    formData.append('manga_title', batchBaseName);
+
+                    const response = await fetch('/api/manga/generate-docx', {
+                        method: 'POST',
+                        body: formData,
+                        signal: mangaAbortController.signal
+                    });
+
+                    if (isMangaDownloadCancelled) return;
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned code ${response.status} សម្រាប់ ${batchBaseName}`);
+                    }
+
+                    const blob = await response.blob();
+                    if (isMangaDownloadCancelled) return;
+
+                    // Save DOCX blob directly into IndexedDB library
+                    lastCreatedDocId = await savePdfToDB(docxName, blob);
+                    successCount++;
+                }
             }
 
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = docxName;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-
-            // Save DOCX blob directly into IndexedDB library (Zero PDF generation overhead)
-            const docTitle = docxName;
-            const createdDocId = await savePdfToDB(docTitle, blob);
+            if (isMangaDownloadCancelled) return;
 
             // Switch to Manga Creator view & OCR tab for preview
             switchView('pdf-creator');
             switchTab('ocr');
             await loadAndRenderPdfGrid();
 
-            if (createdDocId !== null) {
+            if (lastCreatedDocId !== null) {
                 const pdfList = await loadPdfsFromDB();
-                const targetDoc = pdfList.find(p => p.id === createdDocId);
+                const targetDoc = pdfList.find(p => p.id === lastCreatedDocId);
                 if (targetDoc) {
                     selectPdfFile(targetDoc);
                 }
             }
 
-            mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> បានបញ្ជូនទៅកាន់ Manga Creator និងទាញយក Word រួចរាល់!`;
+            mangaDownloadStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-green-500"></i> បានបញ្ជូន DOCX ទៅកាន់ Manga Creator រួចរាល់! (${successCount} ឯកសារ)`;
             logActivityEntry({
                 type: 'doc',
-                title: `បញ្ជូន DOCX ទៅ Manga Creator៖ ${customBaseName}`,
-                subtitle: `ផ្ទុក ${downloadedPagesMap.size} ភាគ (Word Document)`,
-                details: `ទំហំសមាមាត្ររូបភាព 1:1`
+                title: `បញ្ជូន DOCX ទៅ Manga Creator៖ ${currentMangaData.title}`,
+                subtitle: `បង្កើតបាន ${successCount} ឯកសារ Word (.docx)`,
+                details: selectedMode === 'separate' ? 'បំបែក ១ ភាគ = ១ ឯកសារ (Single Chapter)' : 'ច្របាច់តាមក្បាលរឿង (Batch Volumes)'
             });
-            alert(`🎉 បានបង្កើតឯកសារ Word (.docx) និងបញ្ជូន ${downloadedPagesMap.size} ភាគទៅកាន់ Manga Creator ដោយជោគជ័យ!`);
+            alert(`🎉 បានបញ្ជូនឯកសារ Word (.docx) ចំនួន ${successCount} ឯកសារទៅកាន់ Manga Creator ដោយជោគជ័យ!`);
         } catch (err) {
+            if (err.name === 'AbortError' || isMangaDownloadCancelled) {
+                console.log('DOCX generation cancelled.');
+                return;
+            }
             console.error(err);
             alert('មានបញ្ហាក្នុងការបញ្ជូន DOCX៖ ' + err.message);
             mangaDownloadStatus.innerHTML = `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-500"></i> បរាជ័យក្នុងការបញ្ជូន DOCX`;
@@ -3079,14 +3391,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Import downloaded images directly to PDF Creator
     // Import downloaded images directly to PDF Creator Library
     btnMangaImportPdf.addEventListener('click', async () => {
         if (downloadedPagesMap.size === 0) {
-            await startChaptersDownloadSequence();
+            const ok = await startChaptersDownloadSequence();
+            if (!ok || isMangaDownloadCancelled) return;
         }
         
-        if (downloadedPagesMap.size === 0) {
+        if (downloadedPagesMap.size === 0 || isMangaDownloadCancelled) {
             alert('គ្មានទំព័ររូបភាពត្រូវបានទាញយកដើម្បីបញ្ជូនឡើយ!');
             return;
         }
@@ -3098,10 +3410,13 @@ document.addEventListener('DOMContentLoaded', () => {
         btnMangaImportPdf.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Compiling...`;
         btnMangaImportPdf.disabled = true;
 
-        const selectedMode = document.querySelector('input[name="manga-pdf-mode"]:checked')?.value || 'combine';
+        const selectedMode = document.querySelector('input[name="manga-pdf-mode"]:checked')?.value || 'separate';
         let lastCreatedPdfId = null;
 
         try {
+            isMangaDownloadCancelled = false;
+            mangaAbortController = new AbortController();
+
             if (selectedMode === 'combine') {
                 // Read user-defined chunk size (e.g. 10 chapters per volume PDF)
                 const chunkSize = Math.max(1, parseInt(mangaVolChunkSize?.value) || 10);
@@ -3130,6 +3445,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const totalBatches = batches.length;
 
                 for (let bIdx = 0; bIdx < totalBatches; bIdx++) {
+                    if (isMangaDownloadCancelled) break;
                     const currentBatch = batches[bIdx];
                     const volNum = bIdx + 1;
                     const firstCh = currentBatch[0].chStr;
@@ -3173,8 +3489,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const response = await fetch('/api/generate-pdf', {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        signal: mangaAbortController.signal
                     });
+
+                    if (isMangaDownloadCancelled) break;
 
                     if (!response.ok) {
                         let errorMsg = `Server returned code ${response.status}`;
@@ -3186,6 +3505,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     const pdfBlob = await response.blob();
+                    if (isMangaDownloadCancelled) break;
                     const batchBaseName = buildMangaCustomBaseName(currentMangaData.title, currentBatch);
                     const pdfName = `${batchBaseName}.pdf`;
 
@@ -3210,6 +3530,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 for (const { pages, chStr } of chapterEntries) {
+                    if (isMangaDownloadCancelled) break;
                     const chNum = chStr;
                     if (!pages || pages.length === 0) continue;
                     
@@ -3244,8 +3565,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const response = await fetch('/api/generate-pdf', {
                         method: 'POST',
-                        body: formData
+                        body: formData,
+                        signal: mangaAbortController.signal
                     });
+
+                    if (isMangaDownloadCancelled) break;
 
                     if (!response.ok) {
                         let errorMsg = `Server returned code ${response.status}`;
@@ -3259,6 +3583,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     const pdfBlob = await response.blob();
+                    if (isMangaDownloadCancelled) break;
                     const chBaseName = buildMangaCustomBaseName(currentMangaData.title, [{ chStr, chNum }]);
                     const pdfName = `${chBaseName}.pdf`;
                     
@@ -3266,6 +3591,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     lastCreatedPdfId = await savePdfToDB(pdfName, pdfBlob);
                 }
             }
+
+            if (isMangaDownloadCancelled) return;
 
             // Switch view & tab to show the created PDF in library
             switchView('pdf-creator');
@@ -3305,6 +3632,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         } catch (err) {
+            if (err.name === 'AbortError' || isMangaDownloadCancelled) {
+                console.log('PDF compilation cancelled.');
+                return;
+            }
             console.error(err);
             alert('មានបញ្ហាក្នុងការចងក្រង PDF៖ ' + err.message);
             mangaDownloadStatus.innerHTML = `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-500"></i> បរាជ័យក្នុងការចងក្រង PDF`;
@@ -3701,7 +4032,1299 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Expose renderHistoryPage globally so switchView can call it
+
+    // =========================================================================
+    // MODULE: CREATE FAST (1-CLICK BATCH AUTOMATION PIPELINE)
+    // =========================================================================
+
+    // DOM Elements - Ingestion Hub
+    const fastTabFiles = document.getElementById('fast-tab-files');
+    const fastTabUrl = document.getElementById('fast-tab-url');
+    const fastTabSync = document.getElementById('fast-tab-sync');
+    const fastContentFiles = document.getElementById('fast-content-files');
+    const fastContentUrl = document.getElementById('fast-content-url');
+    const fastContentSync = document.getElementById('fast-content-sync');
+
+    // Tab 1: Multi-file
+    const fastDropzone = document.getElementById('fast-dropzone');
+    const fastFileInput = document.getElementById('fast-file-input');
+
+    // Tab 2: Manga URL
+    const fastMangaUrlInput = document.getElementById('fast-manga-url-input');
+    const btnFastFetchManga = document.getElementById('btn-fast-fetch-manga');
+    const fastMangaFetchResults = document.getElementById('fast-manga-fetch-results');
+    const fastFetchedTitle = document.getElementById('fast-fetched-title');
+    const fastFetchedTotalBadge = document.getElementById('fast-fetched-total-badge');
+    const fastChaptersSelectAll = document.getElementById('fast-chapters-select-all');
+    const fastMasterLabel = document.getElementById('fast-master-label');
+    const fastMangaChapterSearch = document.getElementById('fast-manga-chapter-search');
+    const btnFastClearSearch = document.getElementById('btn-fast-clear-search');
+    const btnFastMangaSort = document.getElementById('btn-fast-manga-sort');
+    const fastMangaSortLabel = document.getElementById('fast-manga-sort-label');
+    const fastRangeStart = document.getElementById('fast-range-start');
+    const fastRangeEnd = document.getElementById('fast-range-end');
+    const btnFastApplyRange = document.getElementById('btn-fast-apply-range');
+    const btnFastSelectAllQuick = document.getElementById('btn-fast-select-all-quick');
+    const btnFastDeselectAllQuick = document.getElementById('btn-fast-deselect-all-quick');
+    const fastBtnAddLabel = document.getElementById('fast-btn-add-label');
+    const btnFastAddSelectedChapters = document.getElementById('btn-fast-add-selected-chapters');
+    const fastChaptersCheckboxGrid = document.getElementById('fast-chapters-checkbox-grid');
+
+    // Tab 3: Library Sync
+    const fastLibrarySyncList = document.getElementById('fast-library-sync-list');
+    const btnFastSyncAllLibrary = document.getElementById('btn-fast-sync-all-library');
+
+    // Fast Settings & Toolbar
+    const fastLangSelect = document.getElementById('fast-lang-select');
+    const fastToggleAiReview = document.getElementById('fast-toggle-ai-review');
+
+    // Batch Progress Console
+    const fastBatchProgressContainer = document.getElementById('fast-batch-progress-container');
+    const fastBatchStatusTitle = document.getElementById('fast-batch-status-title');
+    const fastBatchStatusDetails = document.getElementById('fast-batch-status-details');
+    const fastBatchPercent = document.getElementById('fast-batch-percent');
+    const fastBatchProgressBar = document.getElementById('fast-batch-progress-bar');
+    const btnFastCancel = document.getElementById('btn-fast-cancel');
+
+    // Queue Table & Actions
+    const fastMasterCheckbox = document.getElementById('fast-master-checkbox');
+    const fastSelectedCount = document.getElementById('fast-selected-count');
+    const fastTotalCount = document.getElementById('fast-total-count');
+    const btnFastDeleteSelected = document.getElementById('btn-fast-delete-selected');
+    const btnFastClearAll = document.getElementById('btn-fast-clear-all');
+    const btnFastDownloadAllZip = document.getElementById('btn-fast-download-all-zip');
+    const btnFastStartBatch = document.getElementById('btn-fast-start-batch');
+    const fastQueueTableBody = document.getElementById('fast-queue-table-body');
+    const fastQueueEmptyState = document.getElementById('fast-queue-empty-state');
+
+    // Cross-link from Manga Downloader
+    const btnMangaSendToFast = document.getElementById('btn-manga-send-to-fast');
+
+    // State Variables
+    let fastQueue = [];
+    let selectedFastIds = new Set();
+    let isFastBatchRunning = false;
+    let fastAbortController = null;
+    let fastFetchedManga = null;
+    let selectedFastChapters = new Set();
+    let isFastMangaSortAsc = true;
+    let fastMangaSearchQuery = '';
+
+    // 1. Ingestion Hub Tab Switching
+    function switchFastTab(tab) {
+        [fastTabFiles, fastTabUrl, fastTabSync].forEach(t => {
+            if (t) {
+                t.classList.remove('bg-white', 'dark:bg-slate-800', 'shadow-sm', 'text-amber-600', 'dark:text-amber-400', 'border', 'border-slate-200/60', 'dark:border-slate-700/60');
+                t.classList.add('hover:bg-white/60', 'dark:hover:bg-slate-800/60', 'text-slate-600', 'dark:text-slate-400');
+            }
+        });
+        [fastContentFiles, fastContentUrl, fastContentSync].forEach(c => {
+            if (c) c.classList.add('hidden');
+        });
+
+        if (tab === 'files') {
+            if (fastTabFiles) {
+                fastTabFiles.classList.add('bg-white', 'dark:bg-slate-800', 'shadow-sm', 'text-amber-600', 'dark:text-amber-400', 'border', 'border-slate-200/60', 'dark:border-slate-700/60');
+                fastTabFiles.classList.remove('hover:bg-white/60', 'dark:hover:bg-slate-800/60', 'text-slate-600', 'dark:text-slate-400');
+            }
+            if (fastContentFiles) fastContentFiles.classList.remove('hidden');
+        } else if (tab === 'url') {
+            if (fastTabUrl) {
+                fastTabUrl.classList.add('bg-white', 'dark:bg-slate-800', 'shadow-sm', 'text-amber-600', 'dark:text-amber-400', 'border', 'border-slate-200/60', 'dark:border-slate-700/60');
+                fastTabUrl.classList.remove('hover:bg-white/60', 'dark:hover:bg-slate-800/60', 'text-slate-600', 'dark:text-slate-400');
+            }
+            if (fastContentUrl) fastContentUrl.classList.remove('hidden');
+        } else if (tab === 'sync') {
+            if (fastTabSync) {
+                fastTabSync.classList.add('bg-white', 'dark:bg-slate-800', 'shadow-sm', 'text-amber-600', 'dark:text-amber-400', 'border', 'border-slate-200/60', 'dark:border-slate-700/60');
+                fastTabSync.classList.remove('hover:bg-white/60', 'dark:hover:bg-slate-800/60', 'text-slate-600', 'dark:text-slate-400');
+            }
+            if (fastContentSync) fastContentSync.classList.remove('hidden');
+            renderFastLibrarySyncList();
+        }
+        lucide.createIcons();
+    }
+
+    if (fastTabFiles) fastTabFiles.addEventListener('click', () => switchFastTab('files'));
+    if (fastTabUrl) fastTabUrl.addEventListener('click', () => switchFastTab('url'));
+    if (fastTabSync) fastTabSync.addEventListener('click', () => switchFastTab('sync'));
+
+    // 2. Tab 1: Multi-File Drag & Drop / Input Ingestion
+    if (fastDropzone && fastFileInput) {
+        fastDropzone.addEventListener('click', (e) => {
+            if (e.target !== fastFileInput) fastFileInput.click();
+        });
+
+        fastDropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fastDropzone.classList.add('border-amber-500', 'bg-amber-500/10');
+        });
+
+        fastDropzone.addEventListener('dragleave', () => {
+            fastDropzone.classList.remove('border-amber-500', 'bg-amber-500/10');
+        });
+
+        fastDropzone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            fastDropzone.classList.remove('border-amber-500', 'bg-amber-500/10');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                await handleFastFileInputs(Array.from(e.dataTransfer.files));
+            }
+        });
+
+        fastFileInput.addEventListener('change', async (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                await handleFastFileInputs(Array.from(e.target.files));
+                fastFileInput.value = '';
+            }
+        });
+    }
+
+    async function handleFastFileInputs(filesList) {
+        let addedCount = 0;
+        for (const file of filesList) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            const safeTitle = file.name.replace(/\.[^/.]+$/, '').trim() || 'Untitled File';
+            const sizeStr = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+            
+            const item = {
+                id: 'fast_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                title: safeTitle,
+                source: 'file',
+                file: file,
+                fileName: file.name,
+                fileType: ext,
+                size: sizeStr,
+                pagesCount: ext === 'pdf' || ext === 'docx' ? '...' : 1,
+                status: 'pending',
+                error: null,
+                docxBlob: null,
+                addedAt: Date.now()
+            };
+
+            await saveFastQueueItemToDB(item);
+            selectedFastIds.add(item.id);
+            addedCount++;
+        }
+
+        await renderFastQueue();
+        alert(`✅ បានបញ្ចូល ${addedCount} ឯកសារទៅក្នុង Fast Queue ដោយជោគជ័យ!`);
+    }
+
+    // 3. Tab 2: Direct Manga URL Ingestion with Chapter Picker (Cards/Tiles UI)
+    if (btnFastFetchManga && fastMangaUrlInput) {
+        btnFastFetchManga.addEventListener('click', handleFastFetchManga);
+        fastMangaUrlInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') handleFastFetchManga();
+        });
+    }
+
+    function getFilteredAndSortedFastChapters() {
+        if (!fastFetchedManga || !fastFetchedManga.chapters) return [];
+        let list = [...fastFetchedManga.chapters];
+
+        // Filter by search
+        if (fastMangaSearchQuery.trim()) {
+            const q = fastMangaSearchQuery.toLowerCase().trim();
+            list = list.filter(ch => {
+                const chNum = (ch.chapter != null ? String(ch.chapter) : '').toLowerCase();
+                const title = (ch.title || '').toLowerCase();
+                const fullCardName = `ch-${chNum}-${fastFetchedManga.title || ''}`.toLowerCase();
+                return chNum.includes(q) || title.includes(q) || fullCardName.includes(q) || `ch ${chNum}`.includes(q) || `chapter ${chNum}`.includes(q);
+            });
+        }
+
+        // Sort chapters
+        list.sort((a, b) => {
+            const numA = parseFloat(a.chapter);
+            const numB = parseFloat(b.chapter);
+            const validA = !isNaN(numA);
+            const validB = !isNaN(numB);
+
+            if (validA && validB) {
+                return isFastMangaSortAsc ? (numA - numB) : (numB - numA);
+            }
+            if (validA) return isFastMangaSortAsc ? -1 : 1;
+            if (validB) return isFastMangaSortAsc ? 1 : -1;
+            return isFastMangaSortAsc ? (a.id || '').localeCompare(b.id || '') : (b.id || '').localeCompare(a.id || '');
+        });
+
+        return list;
+    }
+
+    function updateFastSelectionUI() {
+        const visibleChapters = getFilteredAndSortedFastChapters();
+        const allVisibleSelected = visibleChapters.length > 0 && visibleChapters.every(ch => selectedFastChapters.has(ch.id));
+        if (fastChaptersSelectAll) {
+            fastChaptersSelectAll.checked = allVisibleSelected;
+        }
+        if (fastBtnAddLabel) {
+            if (selectedFastChapters.size > 0) {
+                fastBtnAddLabel.textContent = `📥 ទាញយក Chapters (${selectedFastChapters.size})`;
+            } else {
+                fastBtnAddLabel.textContent = `📥 ទាញយក Chapters (Download Chapters)`;
+            }
+        }
+    }
+
+    function renderFastChaptersTiles() {
+        if (!fastChaptersCheckboxGrid) return;
+        fastChaptersCheckboxGrid.innerHTML = '';
+
+        const chapters = getFilteredAndSortedFastChapters();
+        if (!chapters || chapters.length === 0) {
+            if (fastFetchedManga && fastFetchedManga.chapters && fastFetchedManga.chapters.length > 0) {
+                fastChaptersCheckboxGrid.innerHTML = `<div class="col-span-1 sm:col-span-2 text-center text-xs text-slate-400 py-8 flex flex-col items-center justify-center gap-2">
+                    <i data-lucide="search-x" class="w-8 h-8 stroke-1 opacity-50"></i>
+                    <span>រកមិនឃើញភាគដែលត្រូវគ្នានឹង "${fastMangaSearchQuery}" ឡើយ។</span>
+                </div>`;
+            } else {
+                fastChaptersCheckboxGrid.innerHTML = `<div class="col-span-1 sm:col-span-2 text-center text-xs text-slate-400 py-6">គ្មានភាគឡើយ។</div>`;
+            }
+            lucide.createIcons();
+            updateFastSelectionUI();
+            return;
+        }
+
+        const mangaTitle = fastFetchedManga ? (fastFetchedManga.title || 'Manga') : 'Manga';
+
+        chapters.forEach(ch => {
+            const chCard = document.createElement('div');
+            const isSelected = selectedFastChapters.has(ch.id);
+            const chNum = ch.chapter ? ch.chapter : '1';
+            const displayChapterTitle = `ch-${chNum}-${mangaTitle}`;
+            const pagesLabel = ch.pages ? `${ch.pages} ទំព័រ` : 'មិនទាន់ទាញយក';
+
+            chCard.className = `fast-ch-card flex items-center justify-between p-2.5 sm:p-3 bg-white dark:bg-slate-900 border rounded-xl cursor-pointer select-none transition shadow-sm ${
+                isSelected 
+                    ? 'border-amber-500 ring-1 ring-amber-500 bg-amber-50/20 dark:bg-amber-950/20' 
+                    : 'border-slate-200 dark:border-slate-800 hover:border-amber-500/60'
+            }`;
+            chCard.dataset.id = ch.id;
+            chCard.dataset.chapter = ch.chapter;
+            chCard.title = displayChapterTitle;
+
+            chCard.innerHTML = `
+                <div class="flex flex-col gap-0.5 min-w-0 pr-2">
+                    <span class="font-bold text-xs text-slate-800 dark:text-slate-200 truncate">${displayChapterTitle}</span>
+                    <span class="text-[10px] text-slate-400 font-semibold">${pagesLabel}</span>
+                </div>
+                <div class="fast-ch-checkbox-indicator w-4 h-4 border rounded flex items-center justify-center text-white shrink-0 transition ${
+                    isSelected ? 'bg-amber-500 border-amber-500' : 'border-slate-300 dark:border-slate-700 bg-transparent'
+                }">
+                    <i data-lucide="check" class="w-3 h-3 stroke-[3] ${isSelected ? '' : 'hidden'}"></i>
+                </div>
+            `;
+
+            // Toggle selection on card click
+            chCard.addEventListener('click', () => {
+                if (selectedFastChapters.has(ch.id)) {
+                    selectedFastChapters.delete(ch.id);
+                    chCard.classList.remove('border-amber-500', 'ring-1', 'ring-amber-500', 'bg-amber-50/20', 'dark:bg-amber-950/20');
+                    chCard.classList.add('border-slate-200', 'dark:border-slate-800');
+                    const indicator = chCard.querySelector('.fast-ch-checkbox-indicator');
+                    if (indicator) {
+                        indicator.classList.remove('bg-amber-500', 'border-amber-500');
+                        indicator.classList.add('border-slate-300', 'dark:border-slate-700', 'bg-transparent');
+                        const icon = indicator.querySelector('i');
+                        if (icon) icon.classList.add('hidden');
+                    }
+                } else {
+                    selectedFastChapters.add(ch.id);
+                    chCard.classList.add('border-amber-500', 'ring-1', 'ring-amber-500', 'bg-amber-50/20', 'dark:bg-amber-950/20');
+                    chCard.classList.remove('border-slate-200', 'dark:border-slate-800');
+                    const indicator = chCard.querySelector('.fast-ch-checkbox-indicator');
+                    if (indicator) {
+                        indicator.classList.add('bg-amber-500', 'border-amber-500');
+                        indicator.classList.remove('border-slate-300', 'dark:border-slate-700', 'bg-transparent');
+                        const icon = indicator.querySelector('i');
+                        if (icon) icon.classList.remove('hidden');
+                    }
+                }
+                updateFastSelectionUI();
+            });
+
+            fastChaptersCheckboxGrid.appendChild(chCard);
+        });
+
+        lucide.createIcons();
+        updateFastSelectionUI();
+    }
+
+    async function handleFastFetchManga() {
+        const url = (fastMangaUrlInput.value || '').trim();
+        if (!url) {
+            alert('សូមបញ្ចូលតំណភ្ជាប់ URL នៃរឿង Manga!');
+            return;
+        }
+
+        btnFastFetchManga.disabled = true;
+        btnFastFetchManga.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> <span>កំពុងទាញយក...</span>`;
+        lucide.createIcons();
+
+        try {
+            const formData = new FormData();
+            formData.append('url', url);
+
+            const res = await fetch('/api/manga/fetch', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+            if (data.status !== 'success' || !data.manga) {
+                throw new Error(data.message || 'មិនអាចស្វែងរកទិន្នន័យ Manga បានទេ!');
+            }
+
+            fastFetchedManga = data.manga;
+            const chapters = data.manga.chapters || [];
+            selectedFastChapters.clear();
+            fastMangaSearchQuery = '';
+            if (fastMangaChapterSearch) fastMangaChapterSearch.value = '';
+            if (btnFastClearSearch) btnFastClearSearch.classList.add('hidden');
+
+            fastFetchedTitle.textContent = data.manga.title || 'Manga Chapters';
+            fastFetchedTitle.title = data.manga.title || '';
+            fastFetchedTotalBadge.textContent = `${chapters.length} Chapters`;
+
+            renderFastChaptersTiles();
+            fastMangaFetchResults.classList.remove('hidden');
+        } catch (err) {
+            alert(`⚠️ បរាជ័យក្នុងការទាញយក Manga: ${err.message}`);
+        } finally {
+            btnFastFetchManga.disabled = false;
+            btnFastFetchManga.innerHTML = `<i data-lucide="search" class="w-3.5 h-3.5"></i> <span>ទាញយក Chapters</span>`;
+            lucide.createIcons();
+        }
+    }
+
+    // Live search
+    if (fastMangaChapterSearch) {
+        fastMangaChapterSearch.addEventListener('input', (e) => {
+            fastMangaSearchQuery = e.target.value;
+            if (btnFastClearSearch) {
+                if (fastMangaSearchQuery.trim()) {
+                    btnFastClearSearch.classList.remove('hidden');
+                } else {
+                    btnFastClearSearch.classList.add('hidden');
+                }
+            }
+            renderFastChaptersTiles();
+        });
+    }
+
+    if (btnFastClearSearch) {
+        btnFastClearSearch.addEventListener('click', () => {
+            if (fastMangaChapterSearch) fastMangaChapterSearch.value = '';
+            fastMangaSearchQuery = '';
+            btnFastClearSearch.classList.add('hidden');
+            renderFastChaptersTiles();
+        });
+    }
+
+    // Sort toggle
+    if (btnFastMangaSort) {
+        btnFastMangaSort.addEventListener('click', () => {
+            isFastMangaSortAsc = !isFastMangaSortAsc;
+            if (fastMangaSortLabel) {
+                fastMangaSortLabel.textContent = isFastMangaSortAsc ? 'ចាស់ ➔ ថ្មី (1 ➔ 99)' : 'ថ្មី ➔ ចាស់ (99 ➔ 1)';
+            }
+            renderFastChaptersTiles();
+        });
+    }
+
+    // Range select
+    if (btnFastApplyRange) {
+        btnFastApplyRange.addEventListener('click', () => {
+            if (!fastFetchedManga || !fastFetchedManga.chapters) return;
+            const sVal = (fastRangeStart ? fastRangeStart.value : '').trim();
+            const eVal = (fastRangeEnd ? fastRangeEnd.value : '').trim();
+
+            if (!sVal || !eVal) {
+                alert('សូមបញ្ចូលលេខភាគចាប់ផ្តើម និងលេខភាគបញ្ចប់!');
+                return;
+            }
+
+            const startNum = parseFloat(sVal);
+            const endNum = parseFloat(eVal);
+
+            if (isNaN(startNum) || isNaN(endNum)) {
+                alert('សូមបញ្ចូលលេខភាគជាលេខប៉ុណ្ណោះ!');
+                return;
+            }
+
+            const min = Math.min(startNum, endNum);
+            const max = Math.max(startNum, endNum);
+
+            let addedCount = 0;
+            fastFetchedManga.chapters.forEach(ch => {
+                const chNum = parseFloat(ch.chapter);
+                if (!isNaN(chNum) && chNum >= min && chNum <= max) {
+                    selectedFastChapters.add(ch.id);
+                    addedCount++;
+                }
+            });
+
+            renderFastChaptersTiles();
+            alert(`✓ បានជ្រើសរើស ${addedCount} ភាគក្នុងចន្លោះពីភាគ ${min} ដល់ ${max}!`);
+        });
+    }
+
+    // Master Select All checkbox
+    if (fastChaptersSelectAll) {
+        fastChaptersSelectAll.addEventListener('change', () => {
+            const isChecked = fastChaptersSelectAll.checked;
+            const visibleChapters = getFilteredAndSortedFastChapters();
+            if (isChecked) {
+                visibleChapters.forEach(ch => selectedFastChapters.add(ch.id));
+            } else {
+                visibleChapters.forEach(ch => selectedFastChapters.delete(ch.id));
+            }
+            renderFastChaptersTiles();
+        });
+    }
+
+    // Quick Select All
+    if (btnFastSelectAllQuick) {
+        btnFastSelectAllQuick.addEventListener('click', () => {
+            const visibleChapters = getFilteredAndSortedFastChapters();
+            visibleChapters.forEach(ch => selectedFastChapters.add(ch.id));
+            renderFastChaptersTiles();
+        });
+    }
+
+    // Quick Deselect All
+    if (btnFastDeselectAllQuick) {
+        btnFastDeselectAllQuick.addEventListener('click', () => {
+            selectedFastChapters.clear();
+            renderFastChaptersTiles();
+        });
+    }
+
+    // Download Selected Chapters as DOCX & Store in Fast Queue
+    if (btnFastAddSelectedChapters) {
+        btnFastAddSelectedChapters.addEventListener('click', async () => {
+            if (!fastFetchedManga) return;
+            if (selectedFastChapters.size === 0) {
+                alert('សូមជ្រើសរើសយ៉ាងហោចណាស់ ១ Chapter ដើម្បីទាញយក!');
+                return;
+            }
+
+            const chaptersMap = new Map((fastFetchedManga.chapters || []).map(c => [c.id, c]));
+            const totalToDownload = selectedFastChapters.size;
+            let currentDownloadIdx = 0;
+            let addedCount = 0;
+
+            btnFastAddSelectedChapters.disabled = true;
+            btnFastAddSelectedChapters.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> <span id="fast-btn-add-label">កំពុងទាញយក Chapters (0/${totalToDownload})...</span>`;
+            lucide.createIcons();
+
+            try {
+                for (const chId of selectedFastChapters) {
+                    currentDownloadIdx++;
+                    const ch = chaptersMap.get(chId);
+                    if (!ch) continue;
+
+                    const chNum = ch.chapter ? ch.chapter : '1';
+                    const itemTitle = `ch-${chNum}-${fastFetchedManga.title}`.trim();
+
+                    if (fastBtnAddLabel) {
+                        fastBtnAddLabel.textContent = `កំពុងទាញយក ${itemTitle} (${currentDownloadIdx}/${totalToDownload})...`;
+                    }
+
+                    // 1. Download Chapter Images via /api/manga/download-chapter
+                    let downloadedPages = [];
+                    try {
+                        const dlForm = new FormData();
+                        dlForm.append('chapter_id', chId);
+                        const dlRes = await fetch('/api/manga/download-chapter', {
+                            method: 'POST',
+                            body: dlForm
+                        });
+                        const dlData = await dlRes.json();
+                        if (dlData.status === 'success' && dlData.pages) {
+                            downloadedPages = dlData.pages;
+                        }
+                    } catch (dlErr) {
+                        console.warn(`Failed to download pages for chapter ${chId}:`, dlErr);
+                    }
+
+                    const pagesCount = downloadedPages.length || ch.pages || 0;
+
+                    // 2. Generate initial DOCX with downloaded pages if available
+                    let docxBlob = null;
+                    if (downloadedPages.length > 0) {
+                        try {
+                            const docxForm = new FormData();
+                            docxForm.append('files', JSON.stringify(downloadedPages));
+                            docxForm.append('manga_title', itemTitle);
+                            docxForm.append('ocr_items', '[]');
+
+                            const genDocxRes = await fetch('/api/manga/generate-docx', {
+                                method: 'POST',
+                                body: docxForm
+                            });
+                            if (genDocxRes.ok) {
+                                docxBlob = await genDocxRes.blob();
+                            }
+                        } catch (docxErr) {
+                            console.warn('Initial DOCX compilation error:', docxErr);
+                        }
+                    }
+
+                    // 3. Save item to IndexedDB as 'ready' with downloaded pages cached
+                    const item = {
+                        id: 'fast_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                        title: itemTitle,
+                        source: 'manga_url',
+                        chapterId: chId,
+                        mangaTitle: fastFetchedManga.title,
+                        pagesCount: pagesCount,
+                        pages: downloadedPages,
+                        status: 'ready',
+                        error: null,
+                        docxBlob: null,
+                        addedAt: Date.now()
+                    };
+
+                    await saveFastQueueItemToDB(item);
+                    selectedFastIds.add(item.id);
+                    addedCount++;
+
+                    // 4. Update the card label on the left
+                    const cardEl = fastChaptersCheckboxGrid.querySelector(`.fast-ch-card[data-id="${CSS.escape(chId)}"]`);
+                    if (cardEl) {
+                        const pageLabelEl = cardEl.querySelector('.text-\\[10px\\]');
+                        if (pageLabelEl) {
+                            pageLabelEl.innerHTML = `<span class="text-emerald-500 dark:text-emerald-400 font-bold">✓ ${pagesCount} ទំព័រ (រួចរាល់)</span>`;
+                        }
+                    }
+                }
+
+                await renderFastQueue();
+                alert(`🎉 បានទាញយក ${addedCount} Chapters ជាឯកសារ .docx និងបញ្ចូលក្នុងតារាងរួចរាល់!`);
+            } catch (err) {
+                alert(`⚠️ បរាជ័យក្នុងដំណើរការទាញយក Chapters: ${err.message}`);
+            } finally {
+                btnFastAddSelectedChapters.disabled = false;
+                btnFastAddSelectedChapters.innerHTML = `<i data-lucide="download" class="w-4 h-4"></i> <span id="fast-btn-add-label">📥 ទាញយក Chapters (Download Chapters)</span>`;
+                lucide.createIcons();
+                updateFastSelectionUI();
+            }
+        });
+    }
+
+    // 4. Tab 3: Library Sync Ingestion
+    async function renderFastLibrarySyncList() {
+        if (!fastLibrarySyncList) return;
+        const pdfs = await loadPdfsFromDB();
+        fastLibrarySyncList.innerHTML = '';
+
+        if (pdfs.length === 0) {
+            fastLibrarySyncList.innerHTML = `
+                <div class="text-center py-4 text-slate-400 dark:text-slate-500">
+                    មិនទាន់មានឯកសារនៅក្នុងបណ្ណាល័យ Document Library នៅឡើយទេ
+                </div>
+            `;
+            return;
+        }
+
+        pdfs.forEach((pdf) => {
+            const div = document.createElement('div');
+            div.className = 'flex items-center justify-between p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800';
+            div.innerHTML = `
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <i data-lucide="file-text" class="w-4 h-4 text-brand-500 shrink-0"></i>
+                    <div class="truncate">
+                        <p class="font-bold text-slate-700 dark:text-slate-200 truncate">${pdf.name}</p>
+                        <p class="text-[10px] text-slate-400">${pdf.size || ''}</p>
+                    </div>
+                </div>
+                <button class="btn-sync-single-pdf px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] rounded-lg transition active:scale-95 flex items-center gap-1 shrink-0" data-id="${pdf.id}">
+                    <i data-lucide="plus" class="w-3 h-3"></i> បន្ថែម
+                </button>
+            `;
+            fastLibrarySyncList.appendChild(div);
+        });
+
+        divAddEvents();
+        lucide.createIcons();
+    }
+
+    function divAddEvents() {
+        document.querySelectorAll('.btn-sync-single-pdf').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const pdfId = Number(btn.getAttribute('data-id'));
+                const pdfs = await loadPdfsFromDB();
+                const targetPdf = pdfs.find(p => p.id === pdfId);
+                if (!targetPdf) return;
+
+                const item = {
+                    id: 'fast_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    title: targetPdf.name.replace(/\.[^/.]+$/, ''),
+                    source: 'library',
+                    file: targetPdf.blob,
+                    fileName: targetPdf.name,
+                    fileType: 'pdf',
+                    size: targetPdf.size,
+                    pagesCount: 1,
+                    status: 'pending',
+                    error: null,
+                    docxBlob: null,
+                    addedAt: Date.now()
+                };
+
+                await saveFastQueueItemToDB(item);
+                selectedFastIds.add(item.id);
+                await renderFastQueue();
+                alert(`✅ បានបន្ថែម "${targetPdf.name}" ទៅក្នុង Fast Queue!`);
+            });
+        });
+    }
+
+    if (btnFastSyncAllLibrary) {
+        btnFastSyncAllLibrary.addEventListener('click', async () => {
+            const pdfs = await loadPdfsFromDB();
+            if (pdfs.length === 0) {
+                alert('មិនមានឯកសារក្នុងបណ្ណាល័យដើម្បីនាំចូលទេ!');
+                return;
+            }
+
+            for (const targetPdf of pdfs) {
+                const item = {
+                    id: 'fast_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    title: targetPdf.name.replace(/\.[^/.]+$/, ''),
+                    source: 'library',
+                    file: targetPdf.blob,
+                    fileName: targetPdf.name,
+                    fileType: 'pdf',
+                    size: targetPdf.size,
+                    pagesCount: 1,
+                    status: 'pending',
+                    error: null,
+                    docxBlob: null,
+                    addedAt: Date.now()
+                };
+                await saveFastQueueItemToDB(item);
+                selectedFastIds.add(item.id);
+            }
+
+            await renderFastQueue();
+            alert(`🎉 បាននាំចូល ${pdfs.length} ឯកសារពីបណ្ណាល័យទៅក្នុង Fast Queue រួចរាល់!`);
+        });
+    }
+
+    // 5. Cross-Link: Send from Manga Downloader into Fast Queue
+    if (btnMangaSendToFast) {
+        btnMangaSendToFast.addEventListener('click', async () => {
+            if (selectedChaptersList.size === 0) {
+                alert('សូមជ្រើសរើសយ៉ាងហោចណាស់ ១ Chapter ពី Manga Downloader!');
+                return;
+            }
+
+            const mangaTitle = (currentMangaData && currentMangaData.title) || 'Manga';
+            const chapters = currentMangaData ? currentMangaData.chapters : [];
+            const chaptersMap = new Map(chapters.map(c => [c.id, c]));
+            let added = 0;
+
+            for (const chId of selectedChaptersList) {
+                const ch = chaptersMap.get(chId);
+                const titleStr = `${mangaTitle} - ${ch && ch.chapter ? 'Ch ' + ch.chapter : ''} ${ch && ch.title ? ch.title : ''}`.trim();
+                const item = {
+                    id: 'fast_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    title: titleStr,
+                    source: 'manga_downloader',
+                    chapterId: chId,
+                    mangaTitle: mangaTitle,
+                    pagesCount: ch && ch.pages ? ch.pages : 0,
+                    status: 'pending',
+                    error: null,
+                    docxBlob: null,
+                    addedAt: Date.now()
+                };
+                await saveFastQueueItemToDB(item);
+                selectedFastIds.add(item.id);
+                added++;
+            }
+
+            switchView('create-fast');
+            await renderFastQueue();
+            alert(`⚡ បានបញ្ជូន ${added} Chapters ទៅកាន់ Create Fast ដោយជោគជ័យ!`);
+        });
+    }
+
+    // 6. Fast Queue Rendering, Selection & State Logic
+    async function renderFastQueue() {
+        fastQueue = await loadFastQueueFromDB();
+        fastQueue.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+
+        if (!fastQueueTableBody) return;
+        fastQueueTableBody.innerHTML = '';
+
+        if (fastQueue.length === 0) {
+            if (fastQueueEmptyState) fastQueueEmptyState.classList.remove('hidden');
+            if (fastSelectedCount) fastSelectedCount.textContent = '0';
+            if (fastTotalCount) fastTotalCount.textContent = '0';
+            if (btnFastDeleteSelected) btnFastDeleteSelected.disabled = true;
+            if (btnFastClearAll) btnFastClearAll.disabled = true;
+            if (btnFastStartBatch) btnFastStartBatch.disabled = true;
+            if (btnFastDownloadAllZip) btnFastDownloadAllZip.disabled = true;
+            if (fastMasterCheckbox) fastMasterCheckbox.checked = false;
+            return;
+        }
+
+        if (fastQueueEmptyState) fastQueueEmptyState.classList.add('hidden');
+        if (fastTotalCount) fastTotalCount.textContent = fastQueue.length;
+
+        // Clean selectedFastIds for deleted items
+        const existingIds = new Set(fastQueue.map(i => i.id));
+        selectedFastIds = new Set([...selectedFastIds].filter(id => existingIds.has(id)));
+        if (fastSelectedCount) fastSelectedCount.textContent = selectedFastIds.size;
+
+        if (fastMasterCheckbox) {
+            fastMasterCheckbox.checked = fastQueue.length > 0 && selectedFastIds.size === fastQueue.length;
+        }
+
+        let hasCompleted = false;
+
+        fastQueue.forEach((item, idx) => {
+            if (item.status === 'completed' && item.docxBlob) hasCompleted = true;
+            const isChecked = selectedFastIds.has(item.id);
+            const tr = document.createElement('tr');
+            tr.className = `hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition ${isChecked ? 'bg-amber-500/5' : ''}`;
+            tr.id = `fast-row-${item.id}`;
+
+            // Source badge
+            let sourceBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50">File Upload</span>`;
+            if (item.source === 'manga_url' || item.source === 'manga_downloader') {
+                sourceBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50">Manga URL</span>`;
+            } else if (item.source === 'library') {
+                sourceBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-900/50">Library</span>`;
+            }
+
+            // Status badge
+            let statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">⏳ រង់ចាំ (Pending)</span>`;
+            if (item.status === 'ready') {
+                statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center gap-1"><i data-lucide="check" class="w-3 h-3"></i> ទាញយករួច (Ready)</span>`;
+            } else if (item.status === 'processing') {
+                statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center justify-center gap-1"><i data-lucide="loader" class="w-3 h-3 animate-spin"></i> កំពុងដំណើរការ...</span>`;
+            } else if (item.status === 'completed') {
+                statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center gap-1"><i data-lucide="check-check" class="w-3 h-3"></i> រួចរាល់ (Done)</span>`;
+            } else if (item.status === 'failed') {
+                statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20" title="${item.error || 'Unknown Error'}">❌ បរាជ័យ</span>`;
+            }
+
+            tr.innerHTML = `
+                <td class="p-3 text-center">
+                    <input type="checkbox" data-id="${item.id}" class="fast-item-checkbox w-4 h-4 text-amber-500 rounded focus:ring-amber-400 cursor-pointer" ${isChecked ? 'checked' : ''}>
+                </td>
+                <td class="p-3 text-center font-bold text-slate-400">${idx + 1}</td>
+                <td class="p-3">
+                    <div class="font-bold text-slate-800 dark:text-slate-200 truncate max-w-xs sm:max-w-md" title="${item.title}">
+                        ${item.title}
+                    </div>
+                    <div class="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                        <span>${item.size || ''}</span>
+                        ${item.error ? `<span class="text-rose-500 truncate max-w-xs">⚠️ ${item.error}</span>` : ''}
+                    </div>
+                </td>
+                <td class="p-3 text-center">${sourceBadge}</td>
+                <td class="p-3 text-center font-bold text-slate-600 dark:text-slate-400">${item.pagesCount || 1}</td>
+                <td class="p-3 text-center" id="fast-status-cell-${item.id}">${statusBadge}</td>
+                <td class="p-3 text-center">
+                    <div class="flex items-center justify-center gap-1.5">
+                        <button class="btn-fast-row-download p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 transition active:scale-95 ${item.status === 'completed' && item.docxBlob ? '' : 'opacity-30 cursor-not-allowed'}" data-id="${item.id}" title="ទាញយក Word (.docx)" ${item.status === 'completed' && item.docxBlob ? '' : 'disabled'}>
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button class="btn-fast-row-studio p-1.5 rounded-lg text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/40 border border-brand-200 dark:border-brand-800/60 transition active:scale-95 ${item.status === 'completed' && item.docxBlob ? '' : 'opacity-30 cursor-not-allowed'}" data-id="${item.id}" title="បើកមើលក្នុង Manga Creator" ${item.status === 'completed' && item.docxBlob ? '' : 'disabled'}>
+                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button class="btn-fast-row-delete p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition active:scale-95" data-id="${item.id}" title="លុបចេញពី Queue">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            fastQueueTableBody.appendChild(tr);
+        });
+
+        // Enable / Disable buttons
+        if (btnFastDeleteSelected) btnFastDeleteSelected.disabled = selectedFastIds.size === 0;
+        if (btnFastClearAll) btnFastClearAll.disabled = fastQueue.length === 0;
+        if (btnFastStartBatch) btnFastStartBatch.disabled = selectedFastIds.size === 0 || isFastBatchRunning;
+        if (btnFastDownloadAllZip) btnFastDownloadAllZip.disabled = !hasCompleted;
+
+        // Wire event listeners on table
+        attachFastTableEvents();
+        lucide.createIcons();
+    }
+
+    function attachFastTableEvents() {
+        // Individual Checkboxes
+        document.querySelectorAll('.fast-item-checkbox').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const id = cb.getAttribute('data-id');
+                if (cb.checked) {
+                    selectedFastIds.add(id);
+                } else {
+                    selectedFastIds.delete(id);
+                }
+                if (fastSelectedCount) fastSelectedCount.textContent = selectedFastIds.size;
+                if (fastMasterCheckbox) {
+                    fastMasterCheckbox.checked = fastQueue.length > 0 && selectedFastIds.size === fastQueue.length;
+                }
+                if (btnFastDeleteSelected) btnFastDeleteSelected.disabled = selectedFastIds.size === 0;
+                if (btnFastStartBatch) btnFastStartBatch.disabled = selectedFastIds.size === 0 || isFastBatchRunning;
+            });
+        });
+
+        // Row Download DOCX
+        document.querySelectorAll('.btn-fast-row-download').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = btn.getAttribute('data-id');
+                downloadFastItemDocx(id);
+            });
+        });
+
+        // Row Open in Studio
+        document.querySelectorAll('.btn-fast-row-studio').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = btn.getAttribute('data-id');
+                openFastItemInStudio(id);
+            });
+        });
+
+        // Row Delete
+        document.querySelectorAll('.btn-fast-row-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-id');
+                await deleteFastQueueItemFromDB(id);
+                selectedFastIds.delete(id);
+                await renderFastQueue();
+            });
+        });
+    }
+
+    // Master Checkbox
+    if (fastMasterCheckbox) {
+        fastMasterCheckbox.addEventListener('change', () => {
+            const isChecked = fastMasterCheckbox.checked;
+            selectedFastIds.clear();
+            if (isChecked) {
+                fastQueue.forEach(item => selectedFastIds.add(item.id));
+            }
+            renderFastQueue();
+        });
+    }
+
+    // Bulk Delete Selected
+    if (btnFastDeleteSelected) {
+        btnFastDeleteSelected.addEventListener('click', async () => {
+            if (selectedFastIds.size === 0) return;
+            if (!confirm(`តើអ្នកពិតជាចង់លុប ${selectedFastIds.size} ឯកសារដែលបានជ្រើសរើសចេញពី Queue មែនទេ?`)) return;
+
+            for (const id of selectedFastIds) {
+                await deleteFastQueueItemFromDB(id);
+            }
+            selectedFastIds.clear();
+            await renderFastQueue();
+        });
+    }
+
+    // Clear All Queue
+    if (btnFastClearAll) {
+        btnFastClearAll.addEventListener('click', async () => {
+            if (!confirm('តើអ្នកពិតជាចង់សម្អាត Fast Queue ទាំងមូលមែនទេ?')) return;
+            await clearFastQueueFromDB();
+            selectedFastIds.clear();
+            await renderFastQueue();
+        });
+    }
+
+    // 7. 1-CLICK BATCH PIPELINE RUNNER
+    if (btnFastStartBatch) {
+        btnFastStartBatch.addEventListener('click', runFastBatchProcess);
+    }
+
+    if (btnFastCancel) {
+        btnFastCancel.addEventListener('click', () => {
+            if (fastAbortController) {
+                fastAbortController.abort();
+                isFastBatchRunning = false;
+                fastBatchStatusDetails.textContent = '⚠️ បានបោះបង់ដំណើរការ Batch ដោយជោគជ័យ!';
+                btnFastStartBatch.disabled = false;
+                lucide.createIcons();
+            }
+        });
+    }
+
+    async function runFastBatchProcess() {
+        if (selectedFastIds.size === 0) {
+            alert('សូមជ្រើសរើសយ៉ាងហោចណាស់ ១ ឯកសារដើម្បីដំណើរការ!');
+            return;
+        }
+
+        const itemsToProcess = fastQueue.filter(i => selectedFastIds.has(i.id));
+        if (itemsToProcess.length === 0) return;
+
+        isFastBatchRunning = true;
+        fastAbortController = new AbortController();
+        btnFastStartBatch.disabled = true;
+
+        fastBatchProgressContainer.classList.remove('hidden');
+        fastBatchPercent.textContent = '0%';
+        fastBatchProgressBar.style.width = '0%';
+
+        const totalItems = itemsToProcess.length;
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (let i = 0; i < totalItems; i++) {
+            if (fastAbortController.signal.aborted) {
+                break;
+            }
+
+            const item = itemsToProcess[i];
+            const percent = Math.round((i / totalItems) * 100);
+            fastBatchPercent.textContent = `${percent}%`;
+            fastBatchProgressBar.style.width = `${percent}%`;
+
+            fastBatchStatusTitle.textContent = `កំពុងដំណើរការ [${i + 1}/${totalItems}]: "${item.title}"...`;
+            fastBatchStatusDetails.textContent = `ដំណាក់កាល ១/៣: កំពុងទាញយកទំព័ររូបភាព...`;
+
+            // Update item row in UI to processing
+            await updateFastQueueItemInDB(item.id, { status: 'processing', error: null });
+            updateRowStatus(item.id, 'processing');
+
+            try {
+                // A. GET PAGE IMAGES
+                let pageImages = [];
+
+                if (item.pages && Array.isArray(item.pages) && item.pages.length > 0) {
+                    // Use pre-downloaded cached images directly!
+                    pageImages = item.pages;
+                } else if (item.source === 'manga_url' || item.source === 'manga_downloader') {
+                    // Download chapter images
+                    fastBatchStatusDetails.textContent = `ដំណាក់កាល ១/៣: កំពុងទាញយក Chapters ពីរលកធាតុអាកាស...`;
+                    const formData = new FormData();
+                    formData.append('chapter_id', item.chapterId);
+
+                    const dlRes = await fetch('/api/manga/download-chapter', {
+                        method: 'POST',
+                        body: formData,
+                        signal: fastAbortController.signal
+                    });
+                    const dlData = await dlRes.json();
+                    if (dlData.status !== 'success' || !dlData.pages) {
+                        throw new Error(dlData.message || 'បរាជ័យក្នុងការទាញទំព័រ Manga');
+                    }
+                    pageImages = dlData.pages; // [{ name, dataUrl }, ...]
+                    await updateFastQueueItemInDB(item.id, { pagesCount: pageImages.length, pages: pageImages });
+                } else if (item.file) {
+                    // Uploaded file (PDF, DOCX, ZIP, or image)
+                    fastBatchStatusDetails.textContent = `ដំណាក់កាល ១/៣: កំពុងរៀបចំឯកសារ "${item.fileName}"...`;
+                    const fileObj = item.file;
+                    const isDocx = item.fileName && item.fileName.toLowerCase().endsWith('.docx');
+                    const isPdf = item.fileName && item.fileName.toLowerCase().endsWith('.pdf');
+
+                    if (isPdf) {
+                        const pdfForm = new FormData();
+                        pdfForm.append('file', fileObj);
+                        const renderRes = await fetch('/api/upload-pdf', {
+                            method: 'POST',
+                            body: pdfForm,
+                            signal: fastAbortController.signal
+                        });
+                        const renderData = await renderRes.json();
+                        if (renderData.status !== 'success' || !renderData.pages) {
+                            throw new Error(renderData.message || 'បរាជ័យក្នុងការបម្លែងទំព័រ PDF');
+                        }
+                        pageImages = renderData.pages.map((p, idx) => ({
+                            name: `page_${idx + 1}.jpg`,
+                            dataUrl: p.dataUrl || p
+                        }));
+                    } else if (isDocx) {
+                        // Extract images from docx via JSZip
+                        const zip = await JSZip.loadAsync(fileObj);
+                        const mediaFiles = Object.keys(zip.files).filter(f => f.toLowerCase().startsWith('word/media/') && !zip.files[f].dir);
+                        mediaFiles.sort((a, b) => {
+                            const numA = parseInt((a.replace(/\D/g, '') || '0'), 10);
+                            const numB = parseInt((b.replace(/\D/g, '') || '0'), 10);
+                            return numA - numB;
+                        });
+                        for (let mIdx = 0; mIdx < mediaFiles.length; mIdx++) {
+                            const f = zip.files[mediaFiles[mIdx]];
+                            const b64 = await f.async('base64');
+                            pageImages.push({
+                                name: `page_${mIdx + 1}.jpg`,
+                                dataUrl: 'data:image/jpeg;base64,' + b64
+                            });
+                        }
+                    } else {
+                        // Single Image or other
+                        const reader = new FileReader();
+                        const dataUrl = await new Promise((res) => {
+                            reader.onload = (e) => res(e.target.result);
+                            reader.readAsDataURL(fileObj);
+                        });
+                        pageImages = [{ name: item.fileName || 'page.jpg', dataUrl }];
+                    }
+                    await updateFastQueueItemInDB(item.id, { pagesCount: pageImages.length });
+                }
+
+                if (pageImages.length === 0) {
+                    throw new Error('រកមិនឃើញទំព័ររូបភាពនៅក្នុងឯកសារឡើយ');
+                }
+
+                if (fastAbortController.signal.aborted) break;
+
+                // B. GEMINI VISION OCR & TRANSLATION
+                fastBatchStatusDetails.textContent = `ដំណាក់កាល ២/៣: Gemini Vision AI កំពុងស្កែន OCR & បកប្រែជាភាសាខ្មែរ (${pageImages.length} ទំព័រ)...`;
+                
+                // Compile pages to a temporary PDF blob to feed into Gemini OCR
+                const pdfForm = new FormData();
+                const metadata = [];
+                for (let pIdx = 0; pIdx < pageImages.length; pIdx++) {
+                    const p = pageImages[pIdx];
+                    let b64 = p.dataUrl || '';
+                    if (b64.includes(',')) b64 = b64.split(',')[1];
+                    const byteChars = atob(b64);
+                    const byteNumbers = new Array(byteChars.length);
+                    for (let j = 0; j < byteChars.length; j++) byteNumbers[j] = byteChars.charCodeAt(j);
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+                    const filename = `page_${pIdx + 1}.jpg`;
+                    pdfForm.append('images', blob, filename);
+                    metadata.push({ filename: filename, name: filename, rotation: 0 });
+                }
+                pdfForm.append('metadata', JSON.stringify(metadata));
+                pdfForm.append('page_size', 'original');
+
+                const tempPdfRes = await fetch('/api/generate-pdf', {
+                    method: 'POST',
+                    body: pdfForm,
+                    signal: fastAbortController.signal
+                });
+                if (!tempPdfRes.ok) {
+                    throw new Error('បរាជ័យក្នុងការរៀបចំ PDF សម្រាប់ OCR');
+                }
+                const tempPdfBlob = await tempPdfRes.blob();
+
+                // Call Gemini Vision OCR with local Multi-Key Pool header
+                const localKey = getGeminiApiKey();
+                const headers = {};
+                if (localKey) headers['x-gemini-api-key'] = localKey;
+
+                const scanForm = new FormData();
+                scanForm.append('file', tempPdfBlob, `${item.title}.pdf`);
+                scanForm.append('lang', fastLangSelect ? fastLangSelect.value : 'auto');
+                scanForm.append('pages', 'all');
+
+                const ocrRes = await fetch('/api/scan-ocr-pdf', {
+                    method: 'POST',
+                    headers: headers,
+                    body: scanForm,
+                    signal: fastAbortController.signal
+                });
+
+                if (!ocrRes.ok) {
+                    const errData = await ocrRes.json().catch(() => ({}));
+                    throw new Error(errData.message || `OCR Scan Error (${ocrRes.status})`);
+                }
+
+                const ocrData = await ocrRes.json();
+                let ocrResults = ocrData.results || [];
+
+                if (fastAbortController.signal.aborted) break;
+
+                // C. AUTO AI REVIEW (if enabled)
+                if (fastToggleAiReview && fastToggleAiReview.checked && ocrResults.length > 0) {
+                    fastBatchStatusDetails.textContent = `ដំណាក់កាល ២b/៣: ✨ Auto AI Review កំពុងផ្ទៀងផ្ទាត់អក្ខរាវិរុទ្ធ...`;
+                    try {
+                        const reviewForm = new FormData();
+                        reviewForm.append('file', tempPdfBlob, `${item.title}.pdf`);
+                        reviewForm.append('ocr_items', JSON.stringify(ocrResults));
+                        reviewForm.append('pageNum', '1');
+                        
+                        const reviewRes = await fetch('/api/ai-review', {
+                            method: 'POST',
+                            headers: headers,
+                            body: reviewForm,
+                            signal: fastAbortController.signal
+                        });
+                        const reviewData = await reviewRes.json();
+                        if (reviewData.status === 'success' && reviewData.results) {
+                            const updatesMap = new Map(reviewData.results.map(u => [u.id, u.transText || u.khmer_translation]));
+                            ocrResults = ocrResults.map(r => {
+                                if (updatesMap.has(r.id)) {
+                                    return { ...r, transText: updatesMap.get(r.id) };
+                                }
+                                return r;
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('AI Review fallback handled:', e.message);
+                    }
+                }
+
+                if (fastAbortController.signal.aborted) break;
+
+                // D. COMPILE TO 100% WORD (.docx) WITH EDITABLE KHMER SHAPES
+                fastBatchStatusDetails.textContent = `ដំណាក់កាល ៣/៣: កំពុងបង្កើតឯកសារ Word (.docx) ដែលមាន Khmer Text Boxes...`;
+                
+                const docxForm = new FormData();
+                for (let pIdx = 0; pIdx < pageImages.length; pIdx++) {
+                    const p = pageImages[pIdx];
+                    let b64 = p.dataUrl || '';
+                    if (b64.includes(',')) b64 = b64.split(',')[1];
+                    const byteChars = atob(b64);
+                    const byteNumbers = new Array(byteChars.length);
+                    for (let j = 0; j < byteChars.length; j++) byteNumbers[j] = byteChars.charCodeAt(j);
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+                    docxForm.append('images', blob, `page_${pIdx + 1}.jpg`);
+                }
+                docxForm.append('ocr_items', JSON.stringify(ocrResults));
+                docxForm.append('title', item.title);
+
+                const docxRes = await fetch('/api/generate-docx', {
+                    method: 'POST',
+                    body: docxForm,
+                    signal: fastAbortController.signal
+                });
+
+                if (docxRes.status !== 200) {
+                    throw new Error('បរាជ័យក្នុងការបង្កើត Word (.docx)');
+                }
+
+                const docxBlob = await docxRes.blob();
+
+                // E. SAVE COMPLETED ITEM
+                await updateFastQueueItemInDB(item.id, {
+                    status: 'completed',
+                    docxBlob: docxBlob,
+                    pagesCount: pageImages.length,
+                    error: null
+                });
+                updateRowStatus(item.id, 'completed');
+                successCount++;
+
+                if (typeof logActivityEntry === 'function') {
+                    logActivityEntry('Create Fast', `Created Word (.docx) for "${item.title}" (${pageImages.length} pages)`);
+                }
+            } catch (err) {
+                console.error(`Error processing item ${item.title}:`, err);
+                await updateFastQueueItemInDB(item.id, {
+                    status: 'failed',
+                    error: err.message
+                });
+                updateRowStatus(item.id, 'failed', err.message);
+                failedCount++;
+            }
+        }
+
+        isFastBatchRunning = false;
+        fastBatchPercent.textContent = '100%';
+        fastBatchProgressBar.style.width = '100%';
+        fastBatchStatusTitle.textContent = `🎉 បានបញ្ចប់ដំណើរការ Batch!`;
+        fastBatchStatusDetails.textContent = `ជោគជ័យ៖ ${successCount} | បរាជ័យ៖ ${failedCount}`;
+        btnFastStartBatch.disabled = false;
+
+        await renderFastQueue();
+        alert(`🏁 ការដំណើរការ 1-Click Batch Process ត្រូវបានបញ្ចប់!\n• ជោគជ័យ: ${successCount}\n• បរាជ័យ: ${failedCount}`);
+    }
+
+    function updateRowStatus(id, status, errorMsg = '') {
+        const cell = document.getElementById(`fast-status-cell-${id}`);
+        if (!cell) return;
+
+        if (status === 'processing') {
+            cell.innerHTML = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center justify-center gap-1"><i data-lucide="loader" class="w-3 h-3 animate-spin"></i> កំពុងដំណើរការ...</span>`;
+        } else if (status === 'completed') {
+            cell.innerHTML = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">✅ រួចរាល់ (Done)</span>`;
+        } else if (status === 'failed') {
+            cell.innerHTML = `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20" title="${errorMsg}">❌ បរាជ័យ</span>`;
+        }
+        lucide.createIcons();
+    }
+
+    // 8. Download Individual Fast Item DOCX
+    async function downloadFastItemDocx(id) {
+        const queue = await loadFastQueueFromDB();
+        const item = queue.find(i => i.id === id);
+        if (!item || !item.docxBlob) {
+            alert('រកមិនឃើញឯកសារ Word (.docx) ឡើយ!');
+            return;
+        }
+
+        const safeName = (item.title || 'Manga_Document').replace(/[^\w\s\-().\u1780-\u17FF]/g, '_').replace(/\s+/g, ' ').trim() + '.docx';
+        const url = URL.createObjectURL(item.docxBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = safeName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // 9. Download All Completed Items as ZIP
+    if (btnFastDownloadAllZip) {
+        btnFastDownloadAllZip.addEventListener('click', downloadAllCompletedFastZip);
+    }
+
+    async function downloadAllCompletedFastZip() {
+        const queue = await loadFastQueueFromDB();
+        const completedItems = queue.filter(i => i.status === 'completed' && i.docxBlob);
+
+        if (completedItems.length === 0) {
+            alert('មិនទាន់មានឯកសារ Word (.docx) ដែលបានបញ្ចប់នៅក្នុង Queue ឡើយ!');
+            return;
+        }
+
+        btnFastDownloadAllZip.disabled = true;
+        btnFastDownloadAllZip.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងវេចខ្ចប់ ZIP...`;
+        lucide.createIcons();
+
+        try {
+            const zip = new JSZip();
+            completedItems.forEach((item, idx) => {
+                const safeName = `${idx + 1}_${(item.title || 'chapter').replace(/[^\w\s\-().\u1780-\u17FF]/g, '_').trim()}.docx`;
+                zip.file(safeName, item.docxBlob);
+            });
+
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Create_Fast_Batch_Word_${Date.now()}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert(`⚠️ បរាជ័យក្នុងការបង្កើត ZIP: ${err.message}`);
+        } finally {
+            btnFastDownloadAllZip.disabled = false;
+            btnFastDownloadAllZip.innerHTML = `<i data-lucide="file-archive" class="w-4 h-4"></i> 📦 ទាញយក DOCX ទាំងអស់ជា ZIP`;
+            lucide.createIcons();
+        }
+    }
+
+    // 10. Open Fast Item in Manga Creator Studio
+    async function openFastItemInStudio(id) {
+        const queue = await loadFastQueueFromDB();
+        const item = queue.find(i => i.id === id);
+        if (!item || !item.docxBlob) return;
+
+        await savePdfToDB(item.title + '.docx', item.docxBlob);
+        await loadAndRenderPdfGrid();
+        switchView('pdf-creator');
+        alert(`📖 បានបញ្ជូន "${item.title}" ទៅកាន់ Manga Creator Studio រួចរាល់!`);
+    }
+
+    // Expose renderFastQueue globally
+    window.renderFastQueue = renderFastQueue;
     window.renderHistoryPage = renderHistoryPage;
     window.logActivityEntry = logActivityEntry;
 });

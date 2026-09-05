@@ -5,6 +5,7 @@ const { runPdfTests } = require('./pdf_features.test');
 const { runMangaTests } = require('./manga_features.test');
 const { runGeminiTests } = require('./gemini_features.test');
 const { runApiTests } = require('./api_endpoints.test');
+const { runFastCreateTests } = require('./fast_create_features.test');
 
 async function runAllFeaturesTest() {
   console.log('====================================================');
@@ -23,36 +24,52 @@ async function runAllFeaturesTest() {
   await runGeminiTests();
 
   // 4. Server API Integration
-  console.log('Starting Express server for API integration tests...');
-  const serverProcess = spawn(`"${process.execPath}"`, ['server.js'], {
-    cwd: path.join(__dirname, '..'),
-    stdio: 'inherit',
-    shell: true
-  });
-
-  // Give server time to listen with retries
+  console.log('Checking Express server for API integration tests...');
+  let serverProcess = null;
   let isReady = false;
-  for (let i = 0; i < 20; i++) {
-    await new Promise(r => setTimeout(r, 500));
-    try {
-      const res = await axios.get('http://127.0.0.1:5000/api/gemini/status', { timeout: 1000 });
-      if (res.status === 200) {
-        isReady = true;
-        break;
+
+  try {
+    const checkRes = await axios.get('http://127.0.0.1:5000/api/gemini/status', { timeout: 1000 });
+    if (checkRes.status === 200) {
+      isReady = true;
+      console.log('Server is already running on http://127.0.0.1:5000');
+    }
+  } catch (e) {}
+
+  if (!isReady) {
+    console.log('Starting Express server process...');
+    serverProcess = spawn(`"${process.execPath}"`, ['server.js'], {
+      cwd: path.join(__dirname, '..'),
+      stdio: 'inherit',
+      shell: true
+    });
+
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      try {
+        const res = await axios.get('http://127.0.0.1:5000/api/gemini/status', { timeout: 1000 });
+        if (res.status === 200) {
+          isReady = true;
+          break;
+        }
+      } catch (e) {
+        // still starting
       }
-    } catch (e) {
-      // still starting
     }
   }
 
   try {
     if (!isReady) console.warn('Server startup polling timed out, attempting tests anyway...');
     await runApiTests();
+    // 5. Create Fast 1-Click Batch Pipeline Tests
+    await runFastCreateTests();
   } finally {
-    try {
-      process.kill(-serverProcess.pid);
-    } catch (e) {
-      serverProcess.kill();
+    if (serverProcess) {
+      try {
+        process.kill(-serverProcess.pid);
+      } catch (e) {
+        serverProcess.kill();
+      }
     }
   }
 

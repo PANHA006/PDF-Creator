@@ -53,7 +53,7 @@ async function generatePdfFromImages(filesMap, metadata, pageSizeOption = 'origi
   const pdfDoc = await PDFDocument.create();
 
   for (const item of metadata) {
-    const filename = item.filename;
+    const filename = item.filename || item.name;
     const rotation = parseInt(item.rotation || 0, 10);
     const fileObj = filesMap[filename];
     if (!fileObj || !fileObj.buffer) continue;

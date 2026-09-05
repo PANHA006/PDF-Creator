@@ -69,6 +69,13 @@
             </button>
         </div>
         <nav class="flex-1 p-4 space-y-2">
+            <button id="nav-create-fast"
+                class="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 group">
+                <span class="flex items-center gap-3">
+                    <i data-lucide="zap" class="w-4 h-4 text-amber-500 fill-amber-500/20"></i> Create Fast
+                </span>
+                <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">1-Click</span>
+            </button>
             <button id="nav-pdf-creator"
                 class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all bg-brand-50 dark:bg-brand-950/40 text-brand-600 dark:text-brand-400">
                 <i data-lucide="book-open" class="w-4 h-4"></i> Manga Creator & OCR
@@ -396,6 +403,11 @@
                                         Vision AI</span>
                                     <span id="ocr-progress-percent"
                                         class="font-mono text-xs font-black text-amber-500 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">0%</span>
+                                    <button type="button" id="btn-ocr-cancel"
+                                        class="px-2.5 py-1 text-[11px] font-bold text-rose-500 hover:text-white bg-rose-500/10 hover:bg-rose-500 border border-rose-500/20 rounded-lg transition flex items-center gap-1 active:scale-95 shadow-sm"
+                                        title="បោះបង់ដំណើរការ (Cancel Process)">
+                                        <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> បោះបង់
+                                    </button>
                                 </div>
                             </div>
 
@@ -518,6 +530,272 @@
 
                 </div>
             </section>
+        </div>
+
+        <!-- NEW VIEW: Create Fast (1-Click Batch Automation Mode) -->
+        <div id="view-create-fast" class="flex-1 hidden flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden">
+            <!-- Header Bar -->
+            <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex items-center justify-between flex-wrap gap-4 z-10 shrink-0 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div class="p-2.5 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-500/30 flex items-center justify-center">
+                        <i data-lucide="zap" class="w-6 h-6 fill-white/20"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Create Fast (ដំណើរការរហ័ស 1-Click)</h2>
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Batch Automation</span>
+                        </div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">បញ្ចូល Files ច្រើន ឬតំណភ្ជាប់ Manga រួចដំណើរការស្វ័យប្រវត្តិចេញជា Word (.docx) ភាសាខ្មែរភ្លាមៗ</p>
+                    </div>
+                </div>
+
+                <!-- Fast Settings Toolbar -->
+                <div class="flex items-center gap-3 flex-wrap">
+                    <!-- Target Language -->
+                    <div class="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                        <span class="text-slate-500 dark:text-slate-400 font-bold">ភាសាស្កែន៖</span>
+                        <select id="fast-lang-select" class="bg-transparent font-bold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer">
+                            <option value="auto" selected>Auto Detect + Khmer</option>
+                            <option value="khm">ភាសាខ្មែរ (Khmer)</option>
+                            <option value="eng">English</option>
+                        </select>
+                    </div>
+
+                    <!-- Toggle AI Review -->
+                    <label class="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs cursor-pointer select-none font-bold text-slate-700 dark:text-slate-300">
+                        <input type="checkbox" id="fast-toggle-ai-review" checked class="w-3.5 h-3.5 text-amber-500 rounded focus:ring-amber-400 cursor-pointer">
+                        <span class="flex items-center gap-1 text-violet-600 dark:text-violet-400"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Auto AI Review</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Main Body Layout: 2-COLUMN SPLIT STUDIO (Left Ingestion Hub ~42%, Right Queue & 1-Click Studio ~58%) -->
+            <div class="flex-1 overflow-hidden p-4 lg:p-6 flex flex-col lg:flex-row gap-5">
+
+                <!-- COLUMN 1: SMART INGESTION HUB (Left Side - 42%) -->
+                <div class="w-full lg:w-[42%] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden shrink-0">
+                    <!-- Channels Tab Bar -->
+                    <div class="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-1.5 gap-1 shrink-0">
+                        <button id="fast-tab-files" class="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 shadow-sm text-amber-600 dark:text-amber-400 border border-slate-200/60 dark:border-slate-700/60 truncate">
+                            <i data-lucide="upload-cloud" class="w-4 h-4 shrink-0"></i> <span class="truncate">១. Files ច្រើន</span>
+                        </button>
+                        <button id="fast-tab-url" class="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 hover:bg-white/60 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400 truncate">
+                            <i data-lucide="link-2" class="w-4 h-4 shrink-0"></i> <span class="truncate">២. Link Manga</span>
+                        </button>
+                        <button id="fast-tab-sync" class="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 hover:bg-white/60 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400 truncate">
+                            <i data-lucide="library" class="w-4 h-4 shrink-0"></i> <span class="truncate">៣. Library Sync</span>
+                        </button>
+                    </div>
+
+                    <!-- Scrollable Content Area for Ingestion Tabs -->
+                    <div class="flex-1 overflow-y-auto p-5 custom-scrollbar flex flex-col">
+                        <!-- TAB 1: Multi-File Ingestion -->
+                        <div id="fast-content-files" class="flex-1 flex flex-col">
+                            <div id="fast-dropzone" class="flex-1 min-h-[320px] border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-amber-500 dark:hover:border-amber-500 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-950/40 hover:bg-amber-500/5 transition cursor-pointer flex flex-col items-center justify-center relative group">
+                                <input type="file" id="fast-file-input" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.zip,image/png,image/jpeg,image/webp" class="absolute inset-0 opacity-0 cursor-pointer">
+                                <div class="p-4 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 mb-3 group-hover:scale-110 transition duration-300">
+                                    <i data-lucide="files" class="w-10 h-10"></i>
+                                </div>
+                                <h3 class="text-sm font-bold text-slate-700 dark:text-slate-200">អូស និងទម្លាក់ Files ច្រើននៅទីនេះ</h3>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-4 max-w-xs">គាំទ្រការ Upload ឯកសារ Word (.docx), PDF (.pdf), ZIP ឬ រូបភាពជាច្រើនក្នុងពេលតែមួយ</p>
+                                <span class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-md transition">ជ្រើសរើស Files (Select Multiple)</span>
+                            </div>
+                        </div>
+
+                        <!-- TAB 2: Direct Manga URL Ingestion -->
+                        <div id="fast-content-url" class="flex-1 hidden flex-col gap-4">
+                            <!-- URL Input Box -->
+                            <div class="flex gap-2">
+                                <div class="flex-1 relative flex items-center">
+                                    <span class="absolute left-3 text-slate-400"><i data-lucide="link" class="w-4 h-4"></i></span>
+                                    <input type="text" id="fast-manga-url-input" class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs font-semibold focus:outline-none focus:border-amber-500" placeholder="https://mangadex.org/... ឬ https://manhuaplus.com/...">
+                                </div>
+                                <button id="btn-fast-fetch-manga" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md active:scale-95 flex items-center gap-1.5 shrink-0">
+                                    <i data-lucide="search" class="w-3.5 h-3.5"></i> <span>ទាញយក</span>
+                                </button>
+                            </div>
+
+                            <!-- Manga Fetch Results Box (Full Height Inside Left Column) -->
+                            <div id="fast-manga-fetch-results" class="flex-1 hidden border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-950/40 flex flex-col gap-2.5">
+                                <!-- Top Bar with Title, Counter & Action Buttons -->
+                                <div class="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                                    <div class="flex items-center gap-2 min-w-0 flex-1">
+                                        <i data-lucide="book-open" class="w-4 h-4 text-amber-500 shrink-0"></i>
+                                        <span id="fast-fetched-title" class="font-bold text-xs text-slate-800 dark:text-slate-200 truncate" title="Manga Title">Manga Title</span>
+                                        <span id="fast-fetched-total-badge" class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold shrink-0">0 Ch</span>
+                                    </div>
+                                    <div class="flex items-center gap-2 shrink-0">
+                                        <button type="button" id="btn-fast-select-all-quick" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[11px] font-bold rounded-lg transition flex items-center gap-1 active:scale-95">
+                                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                                            <span>ជ្រើសទាំងអស់</span>
+                                        </button>
+                                        <button type="button" id="btn-fast-deselect-all-quick" class="px-2 py-1 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-bold rounded-lg transition flex items-center gap-1 active:scale-95">
+                                            <i data-lucide="square" class="w-3.5 h-3.5"></i>
+                                            <span>លុបការជ្រើស</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Search & Sort Controls -->
+                                <div class="flex items-center gap-2 flex-wrap shrink-0">
+                                    <!-- Master Checkbox -->
+                                    <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-amber-500 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition cursor-pointer active:scale-95 shadow-sm select-none shrink-0" title="ចុចដើម្បីជ្រើសរើសទាំងអស់ ឬលុបការជ្រើសរើស">
+                                        <input type="checkbox" id="fast-chapters-select-all" class="w-3.5 h-3.5 text-amber-500 border-slate-300 rounded focus:ring-amber-400 cursor-pointer">
+                                        <span id="fast-master-label">ជ្រើសទាំងអស់</span>
+                                    </label>
+
+                                    <!-- Live Search Bar -->
+                                    <div class="relative flex-1 min-w-[150px]">
+                                        <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                        <input type="text" id="fast-manga-chapter-search" placeholder="ស្វែងរកលេខភាគ ឬចំណងជើង..." class="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500 transition">
+                                        <button id="btn-fast-clear-search" type="button" class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                            <i data-lucide="x" class="w-3 h-3"></i>
+                                        </button>
+                                    </div>
+
+                                    <!-- Sort Button (1 -> 99 vs 99 -> 1) -->
+                                    <button type="button" id="btn-fast-manga-sort" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-amber-500 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition active:scale-95 shadow-sm shrink-0">
+                                        <i data-lucide="arrow-down-up" class="w-3.5 h-3.5 text-amber-500"></i>
+                                        <span id="fast-manga-sort-label">ចាស់ ➔ ថ្មី (1 ➔ 99)</span>
+                                    </button>
+                                </div>
+
+                                <!-- Range Selection Controls -->
+                                <div class="flex items-center gap-2 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shrink-0">
+                                    <span class="font-bold text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ជ្រើសរើសចន្លោះភាគ (Select Range)៖</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <input type="text" id="fast-range-start" class="w-14 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-center font-bold text-xs" placeholder="Start">
+                                        <span class="text-slate-400 text-[11px]">ដល់</span>
+                                        <input type="text" id="fast-range-end" class="w-14 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-center font-bold text-xs" placeholder="End">
+                                    </div>
+                                    <button type="button" id="btn-fast-apply-range" class="ml-auto bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition shrink-0 active:scale-95">
+                                        យល់ព្រម (Apply)
+                                    </button>
+                                </div>
+
+                                <!-- Scrollable Chapter Cards / Tiles Grid (Manga Downloader Style) -->
+                                <div id="fast-chapters-checkbox-grid" class="flex-1 min-h-[220px] max-h-[calc(100vh-420px)] grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto p-2 border border-slate-200/80 dark:border-slate-800 rounded-xl bg-white/60 dark:bg-slate-900/60 custom-scrollbar text-xs">
+                                    <!-- Dynamic chapter tiles -->
+                                </div>
+
+                                <!-- Download Chapters Button -->
+                                <button id="btn-fast-add-selected-chapters" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs py-2.5 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 shrink-0">
+                                    <i data-lucide="download" class="w-4 h-4"></i> <span id="fast-btn-add-label">📥 ទាញយក Chapters (Download Chapters)</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- TAB 3: Library Sync Ingestion -->
+                        <div id="fast-content-sync" class="flex-1 hidden flex-col gap-3">
+                            <div class="flex items-center justify-between shrink-0">
+                                <p class="text-xs text-slate-600 dark:text-slate-400 font-semibold">ជ្រើសរើសឯកសារពី Document Library៖</p>
+                                <button id="btn-fast-sync-all-library" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition shadow-sm active:scale-95 flex items-center gap-1">
+                                    <i data-lucide="arrow-down-to-dot" class="w-3.5 h-3.5"></i> នាំចូលទាំងអស់
+                                </button>
+                            </div>
+                            <div id="fast-library-sync-list" class="flex-1 min-h-[240px] flex flex-col gap-2 overflow-y-auto p-2 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/40 custom-scrollbar text-xs">
+                                <!-- Dynamic library items -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- COLUMN 2: FAST BATCH QUEUE & 1-CLICK STUDIO (Right Side - 58%) -->
+                <div class="w-full lg:w-[58%] flex flex-col gap-4 overflow-hidden flex-1">
+
+                    <!-- Batch Progress Console (When Running) -->
+                    <div id="fast-batch-progress-container" class="hidden border border-amber-500/30 rounded-2xl p-4 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 dark:from-amber-950/30 dark:via-orange-950/30 dark:to-amber-950/20 backdrop-blur-md shadow-lg space-y-2.5 transition-all duration-300 shrink-0">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <div class="relative flex items-center justify-center shrink-0">
+                                    <span class="absolute w-6 h-6 rounded-full bg-amber-500/30 animate-ping-slow"></span>
+                                    <i data-lucide="zap" class="w-4 h-4 text-amber-500 relative z-10 animate-pulse"></i>
+                                </div>
+                                <div class="flex flex-col min-w-0">
+                                    <span id="fast-batch-status-title" class="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">
+                                        កំពុងដំណើរការ Batch ស្វ័យប្រវត្តិចេញជា Word (.docx)...
+                                    </span>
+                                    <span id="fast-batch-status-details" class="text-[11px] font-medium text-amber-600 dark:text-amber-400 truncate">Initializing 1-click batch pipeline...</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <span id="fast-batch-percent" class="font-mono text-xs font-black text-amber-500 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">0%</span>
+                                <button type="button" id="btn-fast-cancel" class="px-2.5 py-1 text-xs font-bold text-rose-500 hover:text-white bg-rose-500/10 hover:bg-rose-500 border border-rose-500/20 rounded-lg transition flex items-center gap-1 active:scale-95 shadow-sm" title="បោះបង់ដំណើរការ (Cancel Batch)">
+                                    <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> បោះបង់
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="relative w-full bg-slate-200/80 dark:bg-slate-800/80 h-2.5 rounded-full overflow-hidden p-0.5">
+                            <div id="fast-batch-progress-bar" class="animated-progress-bar h-full rounded-full w-0 transition-all duration-300 ease-out bg-gradient-to-r from-amber-500 to-orange-500"></div>
+                        </div>
+                    </div>
+
+                    <!-- Queue Table & Batch Action Card -->
+                    <div class="flex-1 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-5 overflow-hidden gap-3">
+                        <!-- Queue Header & Action Bar -->
+                        <div class="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                            <div class="flex items-center gap-2.5">
+                                <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    <input type="checkbox" id="fast-master-checkbox" class="w-4 h-4 text-amber-500 rounded focus:ring-amber-400 cursor-pointer">
+                                    <span>ជ្រើសទាំងអស់</span>
+                                </label>
+                                <span id="fast-queue-count-badge" class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                    បានជ្រើស: <b id="fast-selected-count" class="text-amber-500">0</b> / <span id="fast-total-count">0</span>
+                                </span>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <button id="btn-fast-delete-selected" class="px-2.5 py-1.5 text-xs font-bold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition flex items-center gap-1 border border-rose-200 dark:border-rose-900/40 disabled:opacity-40" disabled title="លុបដែលបានជ្រើស">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button id="btn-fast-clear-all" class="px-2.5 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition flex items-center gap-1 border border-slate-200 dark:border-slate-700 disabled:opacity-40" disabled title="សម្អាត Queue">
+                                    <i data-lucide="eraser" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <!-- Download All Finished as ZIP -->
+                                <button id="btn-fast-download-all-zip" class="px-3 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 border border-emerald-300 dark:border-emerald-800 rounded-xl transition flex items-center gap-1.5 disabled:opacity-40 shadow-sm" disabled title="ទាញយករាល់ឯកសារ Word (.docx) ទាំងអស់ជា ZIP">
+                                    <i data-lucide="file-archive" class="w-3.5 h-3.5"></i> <span>ZIP</span>
+                                </button>
+                                <!-- 1-Click Action Button -->
+                                <button id="btn-fast-start-batch" class="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-lg shadow-amber-500/30 active:scale-95 flex items-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none" disabled>
+                                    <i data-lucide="zap" class="w-4 h-4 fill-white/20"></i> <span>⚡ ចាប់ផ្តើម (1-Click)</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Full-Height Scrollable Queue Table -->
+                        <div class="flex-1 overflow-x-auto overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/30 dark:bg-slate-950/20 custom-scrollbar relative">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead class="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900 shadow-sm">
+                                    <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px]">
+                                        <th class="p-2.5 w-8 text-center"></th>
+                                        <th class="p-2.5 w-10 text-center">#</th>
+                                        <th class="p-2.5">ឈ្មោះ Chapter / ឯកសារ</th>
+                                        <th class="p-2.5 w-24 text-center">ប្រភព</th>
+                                        <th class="p-2.5 w-16 text-center">ទំព័រ</th>
+                                        <th class="p-2.5 w-28 text-center">ស្ថានភាព</th>
+                                        <th class="p-2.5 w-32 text-center">សកម្មភាព</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fast-queue-table-body" class="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                                    <!-- Dynamic Queue Items will be injected here -->
+                                </tbody>
+                            </table>
+
+                            <!-- Empty State -->
+                            <div id="fast-queue-empty-state" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-center p-6">
+                                <div class="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-amber-500/70 mb-2">
+                                    <i data-lucide="layers" class="w-7 h-7"></i>
+                                </div>
+                                <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300">មិនទាន់មានឯកសារនៅក្នុង Queue នៅឡើយទេ</h4>
+                                <p class="text-[11px] text-slate-400 mt-0.5 max-w-xs">សូម Upload Files ឬជ្រើសរើស Chapter នៅខាងឆ្វេង ដើម្បីបន្ថែមទៅក្នុងបញ្ជីរង់ចាំ។</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
         </div>
 
         <!-- NEW VIEW: Manga Downloader View -->
@@ -665,12 +943,19 @@
                         <!-- Progress status (hidden by default) -->
                         <div id="manga-download-progress-container"
                             class="hidden border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-2 bg-slate-50/50 dark:bg-slate-900/10">
-                            <div class="flex items-center justify-between text-xs">
+                            <div class="flex items-center justify-between text-xs gap-2">
                                 <span id="manga-download-status"
-                                    class="font-bold text-brand-600 dark:text-brand-400 flex items-center gap-1.5">
+                                    class="font-bold text-brand-600 dark:text-brand-400 flex items-center gap-1.5 truncate max-w-[65%]">
                                     <i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> កំពុងទាញយក...
                                 </span>
-                                <span id="manga-download-percent" class="font-semibold text-slate-500">0%</span>
+                                <div class="flex items-center gap-2.5 shrink-0">
+                                    <span id="manga-download-percent" class="font-semibold text-slate-500">0%</span>
+                                    <button type="button" id="btn-manga-cancel-download"
+                                        class="px-2.5 py-1 text-[11px] font-bold text-rose-500 hover:text-white bg-rose-500/10 hover:bg-rose-500 border border-rose-500/20 rounded-lg transition flex items-center gap-1 active:scale-95 shadow-sm"
+                                        title="បោះបង់ការទាញយក (Cancel Download)">
+                                        <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> បោះបង់
+                                    </button>
+                                </div>
                             </div>
                             <div class="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
                                 <div id="manga-download-bar"
@@ -680,67 +965,72 @@
                                 download sequence...</p>
                         </div>
 
-                        <!-- PDF Export Mode Selector & Volume Chunking -->
+                        <!-- PDF/DOCX Export Mode Selector & Volume Chunking -->
                         <div
                             class="p-4 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs space-y-3">
                             <div class="flex items-center justify-between flex-wrap gap-2">
                                 <div class="flex items-center gap-2">
                                     <i data-lucide="layers" class="w-4 h-4 text-brand-500"></i>
-                                    <span class="font-bold text-slate-700 dark:text-slate-300">ទម្រង់ PDF ពេលបញ្ជូន (PDF
-                                        Output Mode)៖</span>
+                                    <span class="font-bold text-slate-700 dark:text-slate-300">ទម្រង់ឯកសារពេលបញ្ជូន (Output
+                                        Mode: PDF & DOCX)៖</span>
                                 </div>
                                 <div class="flex items-center gap-4">
                                     <label
                                         class="flex items-center gap-2 cursor-pointer select-none font-bold text-brand-600 dark:text-brand-400">
-                                        <input type="radio" name="manga-pdf-mode" value="combine" checked
+                                        <input type="radio" name="manga-pdf-mode" value="separate" checked
                                             class="w-3.5 h-3.5 text-brand-600 focus:ring-brand-500 cursor-pointer">
-                                        <span>📚 ច្របាច់តាមក្បាលរឿង (Batch Volumes)</span>
+                                        <span>📑 បំបែក ១ ភាគ = ១ ឯកសារ (Single Chapter)</span>
                                     </label>
                                     <label
                                         class="flex items-center gap-2 cursor-pointer select-none font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200">
-                                        <input type="radio" name="manga-pdf-mode" value="separate"
+                                        <input type="radio" name="manga-pdf-mode" value="combine"
                                             class="w-3.5 h-3.5 text-brand-600 focus:ring-brand-500 cursor-pointer">
-                                        <span>📑 បំបែក ១ ភាគ = ១ PDF</span>
+                                        <span>📚 ច្របាច់តាមក្បាលរឿង (Batch Volumes)</span>
                                     </label>
                                 </div>
                             </div>
 
                             <!-- Custom Volume Chunk Options (Visible when combine is active) -->
                             <div id="manga-volume-options-box"
-                                class="pt-2 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
+                                class="hidden pt-2 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
                                 <div class="flex items-center gap-2">
                                     <span class="font-semibold text-slate-600 dark:text-slate-400">កំណត់ចំនួនភាគក្នុង ១
-                                        PDF៖</span>
+                                        ឯកសារ៖</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="manga-vol-chunk-size" value="10" min="1" max="500"
                                             class="w-16 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-center font-bold text-brand-600 dark:text-brand-400 focus:outline-none focus:border-brand-500">
-                                        <span class="text-slate-500 font-medium">ភាគ / 1 PDF</span>
+                                        <span class="text-slate-500 font-medium">ភាគ / 1 ឯកសារ</span>
                                     </div>
                                 </div>
                                 <div id="manga-vol-calc-badge"
                                     class="px-2.5 py-1 rounded-lg bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-900/50 text-brand-700 dark:text-brand-300 font-medium text-[11px] flex items-center gap-1.5">
                                     <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                                    <span id="manga-vol-calc-text">ជ្រើស 0 ភាគ ➔ បង្កើត 0 សៀវភៅ PDF</span>
+                                    <span id="manga-vol-calc-text">ជ្រើស 0 ភាគ ➔ បង្កើត 0 ឯកសារ</span>
                                 </div>
                             </div>
                         </div>
 
                         <!-- Download Actions -->
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                            <button id="btn-manga-send-to-fast"
+                                class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold text-xs px-3 py-3 rounded-xl transition shadow-lg shadow-amber-500/20 active:scale-98 flex items-center justify-center gap-1.5 disabled:opacity-40"
+                                disabled title="បញ្ជូន Chapters ដែលបានជ្រើសទៅកាន់ Create Fast (1-Click Batch)">
+                                <i data-lucide="zap" class="w-4 h-4 fill-white/20"></i> ⚡ បញ្ជូនទៅ Create Fast
+                            </button>
                             <button id="btn-manga-download-docx"
-                                class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs px-4 py-3.5 rounded-xl transition shadow-lg shadow-blue-500/20 active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
+                                class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs px-3 py-3 rounded-xl transition shadow-lg shadow-blue-500/20 active:scale-98 flex items-center justify-center gap-1.5 disabled:opacity-40"
                                 disabled title="ចងក្រងជាឯកសារ Word (.docx) និងបញ្ជូនទៅកាន់ Manga Creator">
-                                <i data-lucide="file-text" class="w-4 h-4 text-blue-200"></i> បញ្ជូន DOCX ទៅ Manga Creator
+                                <i data-lucide="file-text" class="w-4 h-4 text-blue-200"></i> បញ្ជូន DOCX ទៅ Creator
                             </button>
                             <button id="btn-manga-download-zip"
-                                class="bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold text-xs px-4 py-3.5 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
+                                class="bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold text-xs px-3 py-3 rounded-xl transition shadow-md active:scale-98 flex items-center justify-center gap-1.5 disabled:opacity-40"
                                 disabled>
-                                <i data-lucide="file-archive" class="w-4 h-4"></i> ទាញយកជា ZIP (.ZIP)
+                                <i data-lucide="file-archive" class="w-4 h-4"></i> ទាញយកជា ZIP
                             </button>
                             <button id="btn-manga-import-pdf"
-                                class="bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-3.5 rounded-xl transition shadow-lg shadow-brand-500/20 active:scale-98 flex items-center justify-center gap-2 disabled:opacity-40"
+                                class="bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-3 py-3 rounded-xl transition shadow-lg shadow-brand-500/20 active:scale-98 flex items-center justify-center gap-1.5 disabled:opacity-40"
                                 disabled>
-                                <i data-lucide="arrow-right-left" class="w-4 h-4"></i> បញ្ជូនទៅ Manga Creator
+                                <i data-lucide="arrow-right-left" class="w-4 h-4"></i> បញ្ជូនទៅ Creator
                             </button>
                         </div>
                     </div>

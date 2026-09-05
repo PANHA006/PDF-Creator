@@ -218,13 +218,13 @@ async function generateDocxWithKhmerScript(pageImages = [], ocrItems = [], title
           <w:p>
             <w:pPr>
               <w:jc w:val="center"/>
-              <w:spacing w:line="168" w:lineRule="auto" w:before="0" w:after="0"/>
+              <w:spacing w:line="192" w:lineRule="auto" w:before="0" w:after="0"/>
             </w:pPr>
             <w:r>
               <w:rPr>
                 <w:rFonts w:ascii="DaunPenh" w:hAnsi="DaunPenh" w:cs="DaunPenh"/>
-                <w:sz w:val="22"/>
-                <w:szCs w:val="22"/>
+                <w:sz w:val="24"/>
+                <w:szCs w:val="24"/>
                 <w:color w:val="000000"/>
               </w:rPr>
               <w:t xml:space="preserve">${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</w:t>
